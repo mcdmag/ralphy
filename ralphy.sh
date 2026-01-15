@@ -142,7 +142,7 @@ monitor_progress() {
 # Notification sound (macOS)
 notify_done() {
   if command -v afplay &> /dev/null; then
-    afplay /System/Library/Sounds/Glass.aiff 2>/dev/null &
+    afplay /System/Library/Sounds/Glass.aiff 2>/dev/null
   fi
 }
 
