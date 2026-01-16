@@ -1,34 +1,23 @@
-# Ralphy - Autonomous AI Coding Loop
+# Ralphy
 
-Ralphy is a bash script that runs AI coding assistants (Claude Code or OpenCode) in an autonomous loop, working through tasks until everything is complete.
+An autonomous AI coding loop that runs AI assistants (Claude Code or OpenCode) to work through tasks until everything is complete.
 
-## Features
+## What It Does
 
-- **Multi-engine support**: Works with both Claude Code and OpenCode
-- **Multiple PRD formats**: Markdown, YAML, or GitHub Issues
-- **Parallel execution**: Run independent tasks concurrently
-- **Git branch workflow**: Create feature branches and PRs automatically
-- **Retry logic**: Automatic retries with configurable delay on failures
-- **Progress visualization**: Real-time spinner with color-coded step detection
-- **Cost tracking**: Token usage and cost estimation at completion
-- **Cross-platform**: macOS, Linux, and Windows support
-
-## Prerequisites
-
-- [Claude Code CLI](https://github.com/anthropics/claude-code) or [OpenCode CLI](https://opencode.ai/docs/)
-- `jq` for JSON parsing
-- `yq` for YAML parsing (optional, only if using YAML tasks)
-- `gh` for GitHub integration (optional, only if using GitHub Issues)
-- `bc` for cost calculation (optional)
+1. Reads tasks from a PRD file, YAML file, or GitHub Issues
+2. Sends each task to an AI assistant
+3. The AI implements the feature, writes tests, and commits changes
+4. Repeats until all tasks are done
 
 ## Quick Start
 
 ```bash
-# Clone and setup
+# Clone the repo
 git clone https://github.com/yourusername/ralphy.git
+cd ralphy
 chmod +x ralphy.sh
 
-# Create a PRD.md with tasks
+# Create a PRD file with tasks
 cat > PRD.md << 'EOF'
 # My Project
 
@@ -42,38 +31,36 @@ EOF
 ./ralphy.sh
 ```
 
-## AI Engine Selection
+That's it. Ralphy will work through each task autonomously.
 
-| Flag | Description |
-|------|-------------|
-| `--claude` | Use Claude Code (default) |
-| `--opencode` | Use OpenCode instead of Claude Code |
+## Requirements
 
-```bash
-./ralphy.sh --opencode
-```
+**Required:**
+- [Claude Code CLI](https://github.com/anthropics/claude-code) or [OpenCode CLI](https://opencode.ai/docs/)
+- `jq` (for JSON parsing)
 
-## PRD Sources
+**Optional:**
+- `yq` - only if using YAML task files
+- `gh` - only if using GitHub Issues or `--create-pr`
+- `bc` - for cost calculation
 
-Ralphy supports three task sources:
+## Task Sources
 
-### 1. Markdown (default)
+### Markdown (default)
 
 ```bash
 ./ralphy.sh --prd PRD.md
 ```
 
-Format:
+Format your PRD like this:
 ```markdown
-# Project PRD
-
 ## Tasks
-- [ ] Task one
-- [ ] Task two
-- [x] Completed task
+- [ ] First task
+- [ ] Second task
+- [x] Completed task (will be skipped)
 ```
 
-### 2. YAML
+### YAML
 
 ```bash
 ./ralphy.sh --yaml tasks.yaml
@@ -82,60 +69,55 @@ Format:
 Format:
 ```yaml
 tasks:
-  - title: Implement user login
+  - title: First task
     completed: false
-    parallel_group: 1  # Optional: tasks with same group can run in parallel
-  
-  - title: Implement user signup  
+  - title: Second task
     completed: false
-    parallel_group: 1  # Same group as login - can run together
-  
-  - title: Add password reset
-    completed: false
-    parallel_group: 2  # Different group - runs after group 1
 ```
 
-### 3. GitHub Issues
+### GitHub Issues
 
 ```bash
 ./ralphy.sh --github owner/repo
 ./ralphy.sh --github owner/repo --github-label "ready"
 ```
 
-Uses open issues from the specified repository. Issues are closed automatically when completed.
+Uses open issues from the repo. Issues are closed automatically when done.
 
-## Parallel Execution
+## Parallel Mode
 
-Spin up multiple AI agents simultaneously, each working in its own isolated git worktree:
+Run multiple AI agents simultaneously, each in its own isolated git worktree:
 
 ```bash
-# Run up to 3 agents in parallel (default)
-./ralphy.sh --parallel
-
-# Run up to 5 agents in parallel
-./ralphy.sh --parallel --max-parallel 5
-
-# Parallel with automatic PR creation
-./ralphy.sh --parallel --create-pr
+./ralphy.sh --parallel                    # 3 agents (default)
+./ralphy.sh --parallel --max-parallel 5   # 5 agents
 ```
 
-### How Parallel Mode Works
+### How It Works
 
-1. **Isolated Worktrees** - Each agent gets its own git worktree (separate directory)
-2. **Separate Branches** - Each agent works on its own branch (`ralphy/agent-N-task-name`)
-3. **No Conflicts** - Agents can't interfere with each other's work
-4. **Batched Execution** - Tasks run in batches of `--max-parallel` size
+Each agent gets:
+- Its own git worktree (separate directory)
+- Its own branch (`ralphy/agent-1-task-name`, `ralphy/agent-2-task-name`, etc.)
+- Complete isolation from other agents
 
 ```
-Batch 1: Agent 1 ─┬─► Branch: ralphy/agent-1-create-user-model
-         Agent 2 ─┼─► Branch: ralphy/agent-2-create-post-model  
-         Agent 3 ─┘─► Branch: ralphy/agent-3-add-api-endpoints
-
-Batch 2: Agent 4 ───► Branch: ralphy/agent-4-add-authentication
-         Agent 5 ───► Branch: ralphy/agent-5-add-dashboard
+Agent 1 ─► worktree: /tmp/xxx/agent-1 ─► branch: ralphy/agent-1-create-user-model
+Agent 2 ─► worktree: /tmp/xxx/agent-2 ─► branch: ralphy/agent-2-add-api-endpoints
+Agent 3 ─► worktree: /tmp/xxx/agent-3 ─► branch: ralphy/agent-3-setup-database
 ```
 
-### YAML Parallel Groups (optional)
+### After Completion
+
+**Without `--create-pr`:** Branches are automatically merged back to your base branch. If there are merge conflicts, AI will attempt to resolve them.
+
+**With `--create-pr`:** Each completed task gets its own pull request. Branches are kept for review.
+
+```bash
+./ralphy.sh --parallel --create-pr          # Create PRs for each task
+./ralphy.sh --parallel --create-pr --draft-pr  # Create draft PRs
+```
+
+### YAML Parallel Groups
 
 Control which tasks can run together:
 
@@ -144,152 +126,153 @@ tasks:
   - title: Create User model
     parallel_group: 1
   - title: Create Post model
-    parallel_group: 1  # Runs with User model
+    parallel_group: 1  # Runs with User model (same group)
   - title: Add relationships
     parallel_group: 2  # Runs after group 1 completes
 ```
 
-## Git Branch Workflow
+## Branch Workflow
 
-Create a separate branch for each task with optional PR creation:
+Create a separate branch for each task:
 
 ```bash
-# Create feature branches
-./ralphy.sh --branch-per-task
-
-# Specify base branch (default: current branch)
-./ralphy.sh --branch-per-task --base-branch main
-
-# Create PRs automatically
-./ralphy.sh --branch-per-task --create-pr
-
-# Create draft PRs
-./ralphy.sh --branch-per-task --create-pr --draft-pr
+./ralphy.sh --branch-per-task                        # Create feature branches
+./ralphy.sh --branch-per-task --base-branch main     # Branch from main
+./ralphy.sh --branch-per-task --create-pr            # Create PRs automatically
+./ralphy.sh --branch-per-task --create-pr --draft-pr # Create draft PRs
 ```
 
-Branch naming: `ralphy/<slugified-task-name>`
+Branch naming: `ralphy/<task-name-slug>`
 
-Example: Task "Add user authentication" → Branch `ralphy/add-user-authentication`
+Example: "Add user authentication" becomes `ralphy/add-user-authentication`
+
+## AI Engine
+
+```bash
+./ralphy.sh              # Claude Code (default)
+./ralphy.sh --opencode   # OpenCode
+```
 
 ## All Options
 
-### Workflow Options
+### AI Engine
 | Flag | Description |
 |------|-------------|
-| `--no-tests` | Skip writing and running tests |
-| `--no-lint` | Skip linting |
-| `--fast` | Skip both tests and linting |
+| `--claude` | Use Claude Code (default) |
+| `--opencode` | Use OpenCode |
 
-### Execution Options
-| Flag | Description |
-|------|-------------|
-| `--max-iterations N` | Stop after N iterations (0 = unlimited) |
-| `--max-retries N` | Max retries per task on failure (default: 3) |
-| `--retry-delay N` | Seconds between retries (default: 5) |
-| `--dry-run` | Show what would be done without executing |
-
-### Parallel Options
-| Flag | Description |
-|------|-------------|
-| `--parallel` | Run independent tasks in parallel |
-| `--max-parallel N` | Max concurrent tasks (default: 3) |
-
-### Git Branch Options
-| Flag | Description |
-|------|-------------|
-| `--branch-per-task` | Create a new git branch for each task |
-| `--base-branch NAME` | Base branch to create task branches from |
-| `--create-pr` | Create a pull request after each task |
-| `--draft-pr` | Create PRs as drafts |
-
-### PRD Source Options
+### Task Source
 | Flag | Description |
 |------|-------------|
 | `--prd FILE` | PRD file path (default: PRD.md) |
-| `--yaml FILE` | Use YAML task file instead of markdown |
-| `--github REPO` | Fetch tasks from GitHub issues (e.g., owner/repo) |
+| `--yaml FILE` | Use YAML task file |
+| `--github REPO` | Fetch from GitHub issues (owner/repo) |
 | `--github-label TAG` | Filter GitHub issues by label |
 
-### Other Options
+### Parallel Execution
 | Flag | Description |
 |------|-------------|
-| `-v, --verbose` | Show debug output |
-| `-h, --help` | Show help message |
-| `--version` | Show version number |
+| `--parallel` | Run tasks in parallel |
+| `--max-parallel N` | Max concurrent agents (default: 3) |
+
+### Git Branches
+| Flag | Description |
+|------|-------------|
+| `--branch-per-task` | Create a branch for each task |
+| `--base-branch NAME` | Base branch (default: current branch) |
+| `--create-pr` | Create pull requests |
+| `--draft-pr` | Create PRs as drafts |
+
+### Workflow
+| Flag | Description |
+|------|-------------|
+| `--no-tests` | Skip tests |
+| `--no-lint` | Skip linting |
+| `--fast` | Skip both tests and linting |
+
+### Execution Control
+| Flag | Description |
+|------|-------------|
+| `--max-iterations N` | Stop after N tasks (0 = unlimited) |
+| `--max-retries N` | Retries per task on failure (default: 3) |
+| `--retry-delay N` | Seconds between retries (default: 5) |
+| `--dry-run` | Preview without executing |
+
+### Other
+| Flag | Description |
+|------|-------------|
+| `-v, --verbose` | Debug output |
+| `-h, --help` | Show help |
+| `--version` | Show version |
 
 ## Examples
 
 ```bash
-# Basic usage with Claude Code
+# Basic usage
 ./ralphy.sh
 
-# Use OpenCode with fast mode
+# Fast mode with OpenCode
 ./ralphy.sh --opencode --fast
 
-# Feature branch workflow with PRs
+# Parallel with 4 agents and auto-PRs
+./ralphy.sh --parallel --max-parallel 4 --create-pr
+
+# GitHub issues with parallel execution
+./ralphy.sh --github myorg/myrepo --parallel
+
+# Feature branch workflow
 ./ralphy.sh --branch-per-task --create-pr --base-branch main
 
-# Parallel execution with GitHub Issues
-./ralphy.sh --github myorg/myrepo --parallel --max-parallel 4
-
-# YAML tasks with parallel groups
-./ralphy.sh --yaml tasks.yaml --parallel
-
-# Limit iterations and create draft PRs
+# Limited iterations with draft PRs
 ./ralphy.sh --max-iterations 5 --branch-per-task --create-pr --draft-pr
 
-# Dry run to preview
+# Preview what would happen
 ./ralphy.sh --dry-run --verbose
 ```
 
-## Progress Indicator
+## Progress Display
 
-The progress indicator shows:
-- **Spinner**: Animated status indicator
-- **Current step**: Color-coded (Thinking → Reading → Implementing → Testing → Committing)
-- **Task name**: Current task being worked on
-- **Elapsed time**: Time spent on current task
+While running, you'll see:
+- A spinner with the current step (Thinking, Reading, Implementing, Testing, Committing)
+- The current task name
+- Elapsed time
+
+In parallel mode:
+- Number of agents setting up, running, done, and failed
+- Final results with branch names
+- Error logs for any failed agents
 
 ## Cost Tracking
 
-At completion, Ralphy displays:
+At completion, Ralphy shows:
 - Total input/output tokens
-- Estimated cost (based on Claude API pricing)
-- Branches created (if using `--branch-per-task`)
-
-## How It Works
-
-1. **Read tasks** from PRD.md, YAML file, or GitHub Issues
-2. **Create branch** (optional) for the task
-3. **Send prompt** to AI with task context
-4. **AI implements** the feature, writes tests, runs linting
-5. **Mark complete** and commit changes
-6. **Create PR** (optional) for the branch
-7. **Repeat** until all tasks are done
-
-### Autonomous Operation
-
-- **Claude Code**: Uses `--dangerously-skip-permissions` flag
-- **OpenCode**: Uses `OPENCODE_PERMISSION='{"*":"allow"}'` environment variable
+- Estimated cost (or actual cost for OpenCode)
+- Branches created
 
 ## Changelog
+
+### v3.0.1
+- Parallel agents now run in isolated git worktrees
+- Auto-merge branches when not using `--create-pr`
+- AI-powered merge conflict resolution
+- Real-time parallel status display (setup/running/done/failed)
+- Show error logs for failed agents
+- Improved worktree creation with detailed logging
 
 ### v3.0.0
 - Added parallel task execution (`--parallel`, `--max-parallel`)
 - Added git branch per task (`--branch-per-task`, `--create-pr`, `--draft-pr`)
 - Added multiple PRD formats (Markdown, YAML, GitHub Issues)
-- Added YAML parallel groups for controlled concurrency
-- Improved task interface abstraction
+- Added YAML parallel groups
 
 ### v2.0.0
-- Added OpenCode support (`--opencode` flag)
-- Added retry logic with configurable retries and delay
-- Added `--max-iterations`, `--dry-run`, `--verbose` flags
-- Improved progress UI with colors
-- Added cross-platform notification support
+- Added OpenCode support (`--opencode`)
+- Added retry logic
+- Added `--max-iterations`, `--dry-run`, `--verbose`
+- Cross-platform notifications
 
 ### v1.0.0
-- Initial release with Claude Code support
+- Initial release
 
 ## License
 

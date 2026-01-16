@@ -428,9 +428,11 @@ count_completed_markdown() {
 
 mark_task_complete_markdown() {
   local task=$1
-  # Escape special regex characters
+  # For macOS sed (BRE), we need to:
+  # - Escape: [ ] \ . * ^ $ /
+  # - NOT escape: { } ( ) + ? | (these are literal in BRE)
   local escaped_task
-  escaped_task=$(printf '%s\n' "$task" | sed 's/[[\.*^$()+?{|]/\\&/g')
+  escaped_task=$(printf '%s\n' "$task" | sed 's/[[\.*^$/]/\\&/g')
   sed -i.bak "s/^- \[ \] ${escaped_task}/- [x] ${escaped_task}/" "$PRD_FILE"
   rm -f "${PRD_FILE}.bak"
 }
@@ -1118,26 +1120,27 @@ create_agent_worktree() {
   local worktree_dir="${WORKTREE_BASE}/agent-${agent_num}"
   
   # Run git commands from original directory
-  # Errors go to stderr which will be captured by caller's log redirect
+  # All git output goes to stderr so it doesn't interfere with our return value
   (
     cd "$ORIGINAL_DIR" || { echo "Failed to cd to $ORIGINAL_DIR" >&2; exit 1; }
     
     # Prune any stale worktrees first
-    git worktree prune 2>&1
+    git worktree prune >&2
     
     # Delete branch if it exists (force)
-    git branch -D "$branch_name" 2>/dev/null || true
+    git branch -D "$branch_name" >&2 2>/dev/null || true
     
     # Create branch from base
-    git branch "$branch_name" "$BASE_BRANCH" 2>&1 || { echo "Failed to create branch $branch_name from $BASE_BRANCH" >&2; exit 1; }
+    git branch "$branch_name" "$BASE_BRANCH" >&2 || { echo "Failed to create branch $branch_name from $BASE_BRANCH" >&2; exit 1; }
     
     # Remove existing worktree dir if any
     rm -rf "$worktree_dir" 2>/dev/null || true
     
     # Create worktree
-    git worktree add "$worktree_dir" "$branch_name" 2>&1 || { echo "Failed to create worktree at $worktree_dir" >&2; exit 1; }
+    git worktree add "$worktree_dir" "$branch_name" >&2 || { echo "Failed to create worktree at $worktree_dir" >&2; exit 1; }
   )
   
+  # Only output the result - git commands above send their output to stderr
   echo "$worktree_dir|$branch_name"
 }
 
@@ -1231,6 +1234,7 @@ Focus only on implementing: $task_name"
       (
         cd "$worktree_dir"
         claude --dangerously-skip-permissions \
+          --verbose \
           -p "$prompt" \
           --output-format stream-json
       ) > "$tmpfile" 2>>"$log_file"
@@ -1526,17 +1530,131 @@ run_parallel_tasks() {
   # Cleanup worktree base
   rm -rf "$WORKTREE_BASE" 2>/dev/null || true
   
-  # Show branches created
+  # Handle completed branches
   if [[ ${#completed_branches[@]} -gt 0 ]]; then
     echo ""
     echo "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-    echo "${BOLD}Branches created by agents:${RESET}"
-    for branch in "${completed_branches[@]}"; do
-      echo "  ${CYAN}•${RESET} $branch"
-    done
-    if [[ "$CREATE_PR" != true ]]; then
+    
+    if [[ "$CREATE_PR" == true ]]; then
+      # PRs were created, just show the branches
+      echo "${BOLD}Branches created by agents:${RESET}"
+      for branch in "${completed_branches[@]}"; do
+        echo "  ${CYAN}•${RESET} $branch"
+      done
+    else
+      # Auto-merge branches back to main
+      echo "${BOLD}Merging agent branches into ${BASE_BRANCH}...${RESET}"
       echo ""
-      echo "${DIM}Tip: Use --create-pr to automatically create PRs for each branch${RESET}"
+      
+      local merge_failed=()
+      
+      for branch in "${completed_branches[@]}"; do
+        printf "  Merging ${CYAN}%s${RESET}..." "$branch"
+        
+        # Attempt to merge
+        if git merge --no-edit "$branch" >/dev/null 2>&1; then
+          printf " ${GREEN}✓${RESET}\n"
+          # Delete the branch after successful merge
+          git branch -d "$branch" >/dev/null 2>&1 || true
+        else
+          printf " ${YELLOW}conflict${RESET}"
+          merge_failed+=("$branch")
+          # Don't abort yet - try AI resolution
+        fi
+      done
+      
+      # Use AI to resolve merge conflicts
+      if [[ ${#merge_failed[@]} -gt 0 ]]; then
+        echo ""
+        echo "${BOLD}Using AI to resolve ${#merge_failed[@]} merge conflict(s)...${RESET}"
+        echo ""
+        
+        local still_failed=()
+        
+        for branch in "${merge_failed[@]}"; do
+          printf "  Resolving ${CYAN}%s${RESET}..." "$branch"
+          
+          # Get list of conflicted files
+          local conflicted_files
+          conflicted_files=$(git diff --name-only --diff-filter=U 2>/dev/null)
+          
+          if [[ -z "$conflicted_files" ]]; then
+            # No conflicts found (maybe already resolved or aborted)
+            git merge --abort 2>/dev/null || true
+            git merge --no-edit "$branch" >/dev/null 2>&1 || {
+              printf " ${RED}✗${RESET}\n"
+              still_failed+=("$branch")
+              git merge --abort 2>/dev/null || true
+              continue
+            }
+            printf " ${GREEN}✓${RESET}\n"
+            git branch -d "$branch" >/dev/null 2>&1 || true
+            continue
+          fi
+          
+          # Build prompt for AI to resolve conflicts
+          local resolve_prompt="You are resolving a git merge conflict. The following files have conflicts:
+
+$conflicted_files
+
+For each conflicted file:
+1. Read the file to see the conflict markers (<<<<<<< HEAD, =======, >>>>>>> branch)
+2. Understand what both versions are trying to do
+3. Edit the file to resolve the conflict by combining both changes intelligently
+4. Remove all conflict markers
+5. Make sure the resulting code is valid and compiles
+
+After resolving all conflicts:
+1. Run 'git add' on each resolved file
+2. Run 'git commit --no-edit' to complete the merge
+
+Be careful to preserve functionality from BOTH branches. The goal is to integrate all features."
+
+          # Run AI to resolve conflicts
+          local resolve_tmpfile
+          resolve_tmpfile=$(mktemp)
+          
+          if [[ "$USE_OPENCODE" == true ]]; then
+            OPENCODE_PERMISSION='{"*":"allow"}' opencode run \
+              --format json \
+              "$resolve_prompt" > "$resolve_tmpfile" 2>&1
+          else
+            claude --dangerously-skip-permissions \
+              -p "$resolve_prompt" \
+              --output-format stream-json > "$resolve_tmpfile" 2>&1
+          fi
+          
+          rm -f "$resolve_tmpfile"
+          
+          # Check if merge was completed
+          if ! git diff --name-only --diff-filter=U 2>/dev/null | grep -q .; then
+            # No more conflicts - merge succeeded
+            printf " ${GREEN}✓ (AI resolved)${RESET}\n"
+            git branch -d "$branch" >/dev/null 2>&1 || true
+          else
+            # Still has conflicts
+            printf " ${RED}✗ (AI couldn't resolve)${RESET}\n"
+            still_failed+=("$branch")
+            git merge --abort 2>/dev/null || true
+          fi
+        done
+        
+        if [[ ${#still_failed[@]} -gt 0 ]]; then
+          echo ""
+          echo "${YELLOW}Some conflicts could not be resolved automatically:${RESET}"
+          for branch in "${still_failed[@]}"; do
+            echo "  ${YELLOW}•${RESET} $branch"
+          done
+          echo ""
+          echo "${DIM}Resolve conflicts manually: git merge <branch>${RESET}"
+        else
+          echo ""
+          echo "${GREEN}All branches merged successfully!${RESET}"
+        fi
+      else
+        echo ""
+        echo "${GREEN}All branches merged successfully!${RESET}"
+      fi
     fi
   fi
   
