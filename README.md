@@ -1,5 +1,7 @@
 # Ralphy
 
+![Ralphy](assets/ralphy.jpeg)
+
 An autonomous AI coding loop that runs AI assistants (Claude Code, OpenCode, or Cursor) to work through tasks until everything is complete.
 
 ## What It Does
