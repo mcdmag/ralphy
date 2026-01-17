@@ -1616,7 +1616,7 @@ run_parallel_tasks() {
       for ((i = batch_start; i < batch_end; i++)); do
         local task="${tasks[$i]}"
         local agent_num=$((iteration + 1))
-        iteration=$((iteration + 1))
+        ((iteration++))
 
         local status_file=$(mktemp)
         local output_file=$(mktemp)
