@@ -136,14 +136,39 @@ Run multiple agents at once:
 ./ralphy.sh --parallel --max-parallel 5   # 5 agents
 ```
 
-Each agent works in its own git worktree with complete isolation.
+Each agent gets its own git worktree and branch:
+
+```
+Agent 1 → worktree: /tmp/xxx/agent-1 → branch: ralphy/agent-1-create-user-model
+Agent 2 → worktree: /tmp/xxx/agent-2 → branch: ralphy/agent-2-add-api-endpoints
+Agent 3 → worktree: /tmp/xxx/agent-3 → branch: ralphy/agent-3-setup-database
+```
+
+Without `--create-pr`, branches auto-merge back. With `--create-pr`, each task gets its own PR.
+
+### YAML Parallel Groups
+
+Control which tasks run together:
+
+```yaml
+tasks:
+  - title: Create User model
+    parallel_group: 1
+  - title: Create Post model
+    parallel_group: 1  # Runs with User model
+  - title: Add relationships
+    parallel_group: 2  # Runs after group 1
+```
 
 ## Branch Workflow
 
 ```bash
 ./ralphy.sh --branch-per-task             # Feature branch per task
 ./ralphy.sh --branch-per-task --create-pr # Auto-create PRs
+./ralphy.sh --branch-per-task --draft-pr  # Draft PRs
 ```
+
+Branch naming: `ralphy/<task-name-slug>`
 
 ## Requirements
 
