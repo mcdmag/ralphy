@@ -123,6 +123,7 @@ slugify() {
 init_ralphy_config() {
   if [[ -d "$RALPHY_DIR" ]]; then
     log_warn "$RALPHY_DIR already exists"
+    REPLY='N'  # Default if read times out or fails
     read -p "Overwrite config? [y/N] " -n 1 -r -t 30 2>/dev/null || true
     echo
     [[ ! $REPLY =~ ^[Yy]$ ]] && exit 0
@@ -200,9 +201,14 @@ init_ralphy_config() {
 
   elif [[ -f "pyproject.toml" ]] || [[ -f "requirements.txt" ]] || [[ -f "setup.py" ]]; then
     lang="Python"
-    [[ -f "pyproject.toml" ]] && grep -qi "fastapi" pyproject.toml 2>/dev/null && framework="FastAPI"
-    [[ -f "pyproject.toml" ]] && grep -qi "django" pyproject.toml 2>/dev/null && framework="Django"
-    [[ -f "pyproject.toml" ]] && grep -qi "flask" pyproject.toml 2>/dev/null && framework="Flask"
+    local py_frameworks=()
+    local py_deps=""
+    [[ -f "pyproject.toml" ]] && py_deps=$(cat pyproject.toml 2>/dev/null)
+    [[ -f "requirements.txt" ]] && py_deps+=$(cat requirements.txt 2>/dev/null)
+    echo "$py_deps" | grep -qi "fastapi" && py_frameworks+=("FastAPI")
+    echo "$py_deps" | grep -qi "django" && py_frameworks+=("Django")
+    echo "$py_deps" | grep -qi "flask" && py_frameworks+=("Flask")
+    framework=$(IFS=', '; echo "${py_frameworks[*]}")
     test_cmd="pytest"
     lint_cmd="ruff check ."
 
@@ -229,6 +235,9 @@ init_ralphy_config() {
   [[ -n "$build_cmd" ]] && echo "  Build:     ${CYAN}$build_cmd${RESET}"
   echo ""
 
+  # Escape values for safe YAML (double quotes inside strings)
+  yaml_escape() { printf '%s' "$1" | sed 's/"/\\"/g'; }
+
   # Create config.yaml with detected values
   cat > "$CONFIG_FILE" << EOF
 # Ralphy Configuration
@@ -236,16 +245,16 @@ init_ralphy_config() {
 
 # Project info (auto-detected, edit if needed)
 project:
-  name: "$project_name"
-  language: "${lang:-Unknown}"
-  framework: "${framework:-}"
+  name: "$(yaml_escape "$project_name")"
+  language: "$(yaml_escape "${lang:-Unknown}")"
+  framework: "$(yaml_escape "${framework:-}")"
   description: ""  # Add a brief description
 
 # Commands (auto-detected from package.json/pyproject.toml)
 commands:
-  test: "${test_cmd:-}"
-  lint: "${lint_cmd:-}"
-  build: "${build_cmd:-}"
+  test: "$(yaml_escape "${test_cmd:-}")"
+  lint: "$(yaml_escape "${lint_cmd:-}")"
+  build: "$(yaml_escape "${build_cmd:-}")"
 
 # Rules - instructions the AI MUST follow
 # These are injected into every prompt
