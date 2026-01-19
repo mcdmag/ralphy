@@ -91,6 +91,33 @@ export function checkForErrors(output: string): string | null {
 }
 
 /**
+ * Read a stream line by line, calling onLine for each non-empty line
+ */
+async function readStream(
+	stream: ReadableStream<Uint8Array>,
+	onLine: (line: string) => void
+): Promise<void> {
+	const reader = stream.getReader();
+	const decoder = new TextDecoder();
+	let buffer = "";
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			buffer += decoder.decode(value, { stream: true });
+			const lines = buffer.split("\n");
+			buffer = lines.pop() || "";
+			for (const line of lines) {
+				if (line.trim()) onLine(line);
+			}
+		}
+		if (buffer.trim()) onLine(buffer);
+	} finally {
+		reader.releaseLock();
+	}
+}
+
+/**
  * Execute a command with streaming output, calling onLine for each line
  */
 export async function execCommandStreaming(
@@ -107,52 +134,11 @@ export async function execCommandStreaming(
 		env: { ...process.env, ...env },
 	});
 
-	// Drain stderr to prevent buffer filling up
-	const drainStderr = async () => {
-		const stderrReader = proc.stderr.getReader();
-		try {
-			while (true) {
-				const { done } = await stderrReader.read();
-				if (done) break;
-			}
-		} finally {
-			stderrReader.releaseLock();
-		}
-	};
-
-	// Read stdout line by line
-	const processStdout = async () => {
-		const reader = proc.stdout.getReader();
-		const decoder = new TextDecoder();
-		let buffer = "";
-
-		try {
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done) break;
-
-				buffer += decoder.decode(value, { stream: true });
-				const lines = buffer.split("\n");
-				buffer = lines.pop() || "";
-
-				for (const line of lines) {
-					if (line.trim()) {
-						onLine(line);
-					}
-				}
-			}
-
-			// Process any remaining buffer
-			if (buffer.trim()) {
-				onLine(buffer);
-			}
-		} finally {
-			reader.releaseLock();
-		}
-	};
-
-	// Process stdout and drain stderr in parallel
-	await Promise.all([processStdout(), drainStderr()]);
+	// Process both stdout and stderr in parallel
+	await Promise.all([
+		readStream(proc.stdout, onLine),
+		readStream(proc.stderr, onLine),
+	]);
 
 	const exitCode = await proc.exited;
 	return { exitCode };
