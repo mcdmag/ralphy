@@ -10,6 +10,29 @@ import { notifyTaskComplete, notifyTaskFailed } from "../../ui/notify.ts";
 import type { RuntimeOptions } from "../../config/types.ts";
 
 /**
+ * Build list of active settings for display
+ */
+function buildActiveSettings(options: RuntimeOptions): string[] {
+	const activeSettings: string[] = [];
+
+	// Fast mode (both tests and lint skipped)
+	if (options.skipTests && options.skipLint) {
+		activeSettings.push("fast");
+	} else {
+		if (options.skipTests) activeSettings.push("no-tests");
+		if (options.skipLint) activeSettings.push("no-lint");
+	}
+
+	if (options.dryRun) activeSettings.push("dry-run");
+	if (options.branchPerTask) activeSettings.push("branch");
+	if (options.createPr) activeSettings.push("pr");
+	if (options.parallel) activeSettings.push("parallel");
+	if (!options.autoCommit) activeSettings.push("no-commit");
+
+	return activeSettings;
+}
+
+/**
  * Run a single task (brownfield mode)
  */
 export async function runTask(task: string, options: RuntimeOptions): Promise<void> {
@@ -36,8 +59,11 @@ export async function runTask(task: string, options: RuntimeOptions): Promise<vo
 		workDir,
 	});
 
+	// Build active settings for display
+	const activeSettings = buildActiveSettings(options);
+
 	// Execute with spinner
-	const spinner = new ProgressSpinner(task);
+	const spinner = new ProgressSpinner(task, activeSettings);
 
 	if (options.dryRun) {
 		spinner.success("(dry run) Would execute task");
@@ -50,6 +76,14 @@ export async function runTask(task: string, options: RuntimeOptions): Promise<vo
 		const result = await withRetry(
 			async () => {
 				spinner.updateStep("Working");
+
+				// Use streaming if available
+				if (engine.executeStreaming) {
+					return await engine.executeStreaming(prompt, workDir, (step) => {
+						spinner.updateStep(step);
+					});
+				}
+
 				const res = await engine.execute(prompt, workDir);
 
 				if (!res.success && res.error && isRetryableError(res.error)) {
