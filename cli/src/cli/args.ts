@@ -39,11 +39,11 @@ export function createProgram(): Command {
     .option("--base-branch <branch>", "Base branch for PRs")
     .option("--create-pr", "Create pull request after each task")
     .option("--draft-pr", "Create PRs as draft")
-		.option("--prd <path>", "PRD file or folder (auto-detected)", "PRD.md")
-		.option("--yaml <file>", "YAML task file")
-		.option("--json <file>", "JSON task file")
-		.option("--github <repo>", "GitHub repo for issues (owner/repo)")
-		.option("--github-label <label>", "Filter GitHub issues by label")
+    .option("--prd <path>", "PRD file or folder (auto-detected)", "PRD.md")
+    .option("--yaml <file>", "YAML task file")
+    .option("--json <file>", "JSON task file")
+    .option("--github <repo>", "GitHub repo for issues (owner/repo)")
+    .option("--github-label <label>", "Filter GitHub issues by label")
     .option("--no-commit", "Don't auto-commit changes")
     .option("--browser", "Enable browser automation (agent-browser)")
     .option("--no-browser", "Disable browser automation")
@@ -87,37 +87,37 @@ export function parseArgs(args: string[]): {
   const modelOverride = opts.sonnet ? "sonnet" : opts.model || undefined;
 
   // Determine PRD source with auto-detection for file vs folder
-	let prdSource: "markdown" | "markdown-folder" | "yaml" | "json" | "github" =
-		"markdown";
-	let prdFile = opts.prd || "PRD.md";
-	let prdIsFolder = false;
+  let prdSource: "markdown" | "markdown-folder" | "yaml" | "json" | "github" =
+    "markdown";
+  let prdFile = opts.prd || "PRD.md";
+  let prdIsFolder = false;
 
-	if (opts.json) {
-		prdSource = "json";
-		prdFile = opts.json;
-	} else if (opts.yaml) {
-		prdSource = "yaml";
-		prdFile = opts.yaml;
-	} else if (opts.github) {
-		prdSource = "github";
-	} else {
-		// Auto-detect if PRD path is a file or folder
-		if (existsSync(prdFile)) {
-			const stat = statSync(prdFile);
-			if (stat.isDirectory()) {
-				prdSource = "markdown-folder";
-				prdIsFolder = true;
-			} else if (prdFile.toLowerCase().endsWith(".json")) {
-				prdSource = "json";
-			}
-		} else if (prdFile.toLowerCase().endsWith(".json")) {
-			prdSource = "json";
-		}
-	}
+  if (opts.json) {
+    prdSource = "json";
+    prdFile = opts.json;
+  } else if (opts.yaml) {
+    prdSource = "yaml";
+    prdFile = opts.yaml;
+  } else if (opts.github) {
+    prdSource = "github";
+  } else {
+    // Auto-detect if PRD path is a file or folder
+    if (existsSync(prdFile)) {
+      const stat = statSync(prdFile);
+      if (stat.isDirectory()) {
+        prdSource = "markdown-folder";
+        prdIsFolder = true;
+      } else if (prdFile.toLowerCase().endsWith(".json")) {
+        prdSource = "json";
+      }
+    } else if (prdFile.toLowerCase().endsWith(".json")) {
+      prdSource = "json";
+    }
+  }
 
-	// Handle --fast
-	const skipTests = opts.fast || opts.skipTests;
-	const skipLint = opts.fast || opts.skipLint;
+  // Handle --fast
+  const skipTests = opts.fast || opts.skipTests;
+  const skipLint = opts.fast || opts.skipLint;
 
   const options: RuntimeOptions = {
     skipTests,
