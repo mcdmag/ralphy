@@ -129,7 +129,7 @@ export async function sendNotifications(
 		);
 	}
 
-	if (slack_webhook) {
+	if (slack_webhook && slack_webhook.trim() !== "") {
 		tasks.push(
 			sendSlackNotification(slack_webhook, status, result).catch((err) => {
 				logError(`Slack notification failed: ${err.message}`);
