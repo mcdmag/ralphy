@@ -48,6 +48,7 @@ async function runAgentInWorktree(
 	skipLint: boolean,
 	browserEnabled: "auto" | "true" | "false",
 	modelOverride?: string,
+	engineArgs?: string[],
 ): Promise<ParallelAgentResult> {
 	let worktreeDir = "";
 	let branchName = "";
@@ -97,7 +98,10 @@ async function runAgentInWorktree(
 		});
 
 		// Execute with retry
-		const engineOptions = modelOverride ? { modelOverride } : undefined;
+		const engineOptions = {
+			...(modelOverride && { modelOverride }),
+			...(engineArgs && engineArgs.length > 0 && { engineArgs }),
+		};
 		const result = await withRetry(
 			async () => {
 				const res = await engine.execute(prompt, worktreeDir, engineOptions);
@@ -145,6 +149,7 @@ export async function runParallel(
 		browserEnabled,
 		modelOverride,
 		skipMerge,
+		engineArgs,
 	} = options;
 
 	const result: ExecutionResult = {
@@ -241,6 +246,7 @@ export async function runParallel(
 				skipLint,
 				browserEnabled,
 				modelOverride,
+				engineArgs,
 			);
 		});
 
@@ -313,6 +319,7 @@ export async function runParallel(
 			engine,
 			workDir,
 			modelOverride,
+			engineArgs,
 		);
 
 		// Restore starting branch if we're not already on it
@@ -335,6 +342,7 @@ async function mergeCompletedBranches(
 	engine: AIEngine,
 	workDir: string,
 	modelOverride?: string,
+	engineArgs?: string[],
 ): Promise<void> {
 	if (branches.length === 0) {
 		return;
@@ -363,6 +371,7 @@ async function mergeCompletedBranches(
 				branch,
 				workDir,
 				modelOverride,
+				engineArgs,
 			);
 
 			if (resolved) {
