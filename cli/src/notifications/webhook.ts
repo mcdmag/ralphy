@@ -100,7 +100,8 @@ async function sendCustomNotification(
 	});
 
 	if (!response.ok) {
-		throw new Error(`Custom webhook failed: ${response.status}`);
+		const text = await response.text().catch(() => "");
+		throw new Error(`Custom webhook failed: ${response.status}${text ? ` - ${text}` : ""}`);
 	}
 }
 
