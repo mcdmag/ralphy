@@ -3,7 +3,7 @@ import type { AIEngine, AIResult } from "../engines/types.ts";
 import { createTaskBranch, returnToBaseBranch } from "../git/branch.ts";
 import { createPullRequest } from "../git/pr.ts";
 import type { Task, TaskSource } from "../tasks/types.ts";
-import { logDebug, logError, logInfo, logSuccess } from "../ui/logger.ts";
+import { logDebug, logError, logInfo, logSuccess, logWarn } from "../ui/logger.ts";
 import { notifyTaskComplete, notifyTaskFailed } from "../ui/notify.ts";
 import { ProgressSpinner } from "../ui/spinner.ts";
 import { buildPrompt } from "./prompt.ts";
@@ -25,6 +25,7 @@ export interface ExecutionOptions {
 	draftPr: boolean;
 	autoCommit: boolean;
 	browserEnabled: "auto" | "true" | "false";
+	prdFile?: string;
 	/** Active settings to display in spinner */
 	activeSettings?: string[];
 	/** Override default model for the engine */
@@ -77,6 +78,7 @@ export async function runSequential(options: ExecutionOptions): Promise<Executio
 	};
 
 	let iteration = 0;
+	let abortDueToRetryableFailure = false;
 
 	while (true) {
 		// Check iteration limit
@@ -115,6 +117,7 @@ export async function runSequential(options: ExecutionOptions): Promise<Executio
 			browserEnabled,
 			skipTests,
 			skipLint,
+			prdFile: options.prdFile,
 		});
 
 		// Execute with spinner
@@ -190,23 +193,42 @@ export async function runSequential(options: ExecutionOptions): Promise<Executio
 						}
 					}
 				} else {
-					spinner.error(aiResult.error || "Unknown error");
-					logTaskProgress(task.title, "failed", workDir);
-					result.tasksFailed++;
-					notifyTaskFailed(task.title, aiResult.error || "Unknown error");
+					const errMsg = aiResult.error || "Unknown error";
+					if (isRetryableError(errMsg)) {
+						spinner.error(errMsg);
+						logWarn(`Temporary failure, stopping early: ${errMsg}`);
+						result.tasksFailed++;
+						abortDueToRetryableFailure = true;
+					} else {
+						spinner.error(errMsg);
+						logTaskProgress(task.title, "failed", workDir);
+						result.tasksFailed++;
+						notifyTaskFailed(task.title, errMsg);
+					}
 				}
 			} catch (error) {
 				const errorMsg = error instanceof Error ? error.message : String(error);
-				spinner.error(errorMsg);
-				logTaskProgress(task.title, "failed", workDir);
-				result.tasksFailed++;
-				notifyTaskFailed(task.title, errorMsg);
+				if (isRetryableError(errorMsg)) {
+					spinner.error(errorMsg);
+					logWarn(`Temporary failure, stopping early: ${errorMsg}`);
+					result.tasksFailed++;
+					abortDueToRetryableFailure = true;
+				} else {
+					spinner.error(errorMsg);
+					logTaskProgress(task.title, "failed", workDir);
+					result.tasksFailed++;
+					notifyTaskFailed(task.title, errorMsg);
+				}
 			}
 		}
 
 		// Return to base branch if we created one
 		if (branchPerTask && baseBranch) {
 			await returnToBaseBranch(baseBranch, workDir);
+		}
+
+		if (abortDueToRetryableFailure) {
+			break;
 		}
 	}
 
