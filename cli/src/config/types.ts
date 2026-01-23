@@ -32,7 +32,11 @@ export const CommandsSchema = z.object({
  * Boundaries schema
  */
 export const BoundariesSchema = z.object({
-	never_touch: z.array(z.string()).default([]),
+	never_touch: z
+		.array(z.string())
+		.nullable()
+		.transform((v) => v ?? [])
+		.default([]),
 });
 
 /**
@@ -41,7 +45,11 @@ export const BoundariesSchema = z.object({
 export const RalphyConfigSchema = z.object({
 	project: ProjectSchema.default({}),
 	commands: CommandsSchema.default({}),
-	rules: z.array(z.string()).default([]),
+	rules: z
+		.array(z.string())
+		.nullable()
+		.transform((v) => v ?? [])
+		.default([]),
 	boundaries: BoundariesSchema.default({}),
 	notifications: NotificationsSchema.default({}),
 });

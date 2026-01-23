@@ -246,10 +246,25 @@ Notifications include task completion counts and status (completed/failed).
 
 ## Sandbox Mode
 
-For large repos with big dependency directories, sandbox mode is faster than git worktrees.
-Uses symlinks for read-only dependencies (`node_modules`, `.git`, etc.) and copies source files.
+For large repos with big dependency directories, sandbox mode is faster than git worktrees:
 
-This is used internally during parallel execution when beneficial.
+```bash
+ralphy --parallel --sandbox
+```
+
+**How it works:**
+- **Symlinks** read-only dependencies (`node_modules`, `.git`, `vendor`, `.venv`, `.pnpm-store`, `.yarn`, `.cache`)
+- **Copies** source files that agents might modify (`src/`, `app/`, `lib/`, config files, etc.)
+
+**Why use it:**
+- Avoids duplicating gigabytes of `node_modules` across worktrees
+- Much faster sandbox creation for large monorepos
+- Changes sync back to original directory after each task
+
+**When to use worktrees instead (default):**
+- Need full git history access in each sandbox
+- Running `git` commands that require a real repo
+- Smaller repos where worktree overhead is minimal
 
 ## Options
 
@@ -263,6 +278,7 @@ This is used internally during parallel execution when beneficial.
 | `--sonnet` | shortcut for `--claude --model sonnet` |
 | `--parallel` | run parallel |
 | `--max-parallel N` | max agents (default: 3) |
+| `--sandbox` | use lightweight sandboxes instead of git worktrees |
 | `--no-merge` | skip auto-merge in parallel mode |
 | `--branch-per-task` | branch per task |
 | `--base-branch NAME` | base branch |

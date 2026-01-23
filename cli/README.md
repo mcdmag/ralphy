@@ -126,6 +126,20 @@ ralphy --parallel --max-parallel 5 # 5 agents
 
 Each agent gets isolated worktree + branch. Without `--create-pr`: auto-merges back with AI conflict resolution. With `--create-pr`: keeps branches, creates PRs. With `--no-merge`: keeps branches without merging.
 
+### Sandbox Mode
+
+For large repos with big `node_modules` or dependency directories, use sandbox mode instead of git worktrees:
+
+```bash
+ralphy --parallel --sandbox
+```
+
+Sandboxes are faster because they:
+- **Symlink** read-only dependencies (`node_modules`, `.git`, `vendor`, `.venv`, etc.)
+- **Copy** only source files that agents might modify
+
+This avoids duplicating gigabytes of dependencies across worktrees. Changes are synced back to the original directory after each task completes.
+
 ## Branch Workflow
 
 ```bash
@@ -161,6 +175,7 @@ When enabled (and agent-browser is installed), the AI can:
 | `--sonnet` | shortcut for `--claude --model sonnet` |
 | `--parallel` | run parallel |
 | `--max-parallel N` | max agents (default: 3) |
+| `--sandbox` | use lightweight sandboxes instead of git worktrees |
 | `--no-merge` | skip auto-merge in parallel mode |
 | `--branch-per-task` | branch per task |
 | `--base-branch BRANCH` | base branch for PRs |
