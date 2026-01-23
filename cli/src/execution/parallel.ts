@@ -7,28 +7,37 @@ import { getCurrentBranch, returnToBaseBranch } from "../git/branch.ts";
 import {
 	abortMerge,
 	analyzePreMerge,
-	createIntegrationBranch,
 	deleteLocalBranch,
 	mergeAgentBranch,
 	sortByConflictLikelihood,
 } from "../git/merge.ts";
 import { cleanupAgentWorktree, createAgentWorktree, getWorktreeBase } from "../git/worktree.ts";
 import { CachedTaskSource } from "../tasks/cached-task-source.ts";
-import type { Task, TaskSource } from "../tasks/types.ts";
+import type { Task } from "../tasks/types.ts";
 import { YamlTaskSource } from "../tasks/yaml.ts";
 import { logDebug, logError, logInfo, logSuccess, logWarn } from "../ui/logger.ts";
 import { notifyTaskComplete, notifyTaskFailed } from "../ui/notify.ts";
 import { resolveConflictsWithAI } from "./conflict-resolution.ts";
 import { buildParallelPrompt } from "./prompt.ts";
-import { isRetryableError, sleep, withRetry } from "./retry.ts";
+import { isRetryableError, withRetry } from "./retry.ts";
+import {
+	cleanupSandbox,
+	createSandbox,
+	getModifiedFiles,
+	getSandboxBase,
+} from "./sandbox.ts";
+import { commitSandboxChanges } from "./sandbox-git.ts";
 import type { ExecutionOptions, ExecutionResult } from "./sequential.ts";
 
 interface ParallelAgentResult {
 	task: Task;
+	agentNum: number;
 	worktreeDir: string;
 	branchName: string;
 	result: AIResult | null;
 	error?: string;
+	/** Whether this agent used sandbox mode */
+	usedSandbox?: boolean;
 }
 
 /**
@@ -115,15 +124,116 @@ async function runAgentInWorktree(
 			{ maxRetries, retryDelay },
 		);
 
-		return { task, worktreeDir, branchName, result };
+		return { task, agentNum, worktreeDir, branchName, result };
 	} catch (error) {
 		const errorMsg = error instanceof Error ? error.message : String(error);
-		return { task, worktreeDir, branchName, result: null, error: errorMsg };
+		return { task, agentNum, worktreeDir, branchName, result: null, error: errorMsg };
 	}
 }
 
 /**
- * Run tasks in parallel using worktrees
+ * Run a single agent in a lightweight sandbox.
+ *
+ * Sandboxes use symlinks for read-only dependencies (node_modules, .git, etc.)
+ * and copy source files. This is much faster than git worktrees for large repos.
+ */
+async function runAgentInSandbox(
+	engine: AIEngine,
+	task: Task,
+	agentNum: number,
+	sandboxBase: string,
+	originalDir: string,
+	prdSource: string,
+	prdFile: string,
+	prdIsFolder: boolean,
+	maxRetries: number,
+	retryDelay: number,
+	skipTests: boolean,
+	skipLint: boolean,
+	browserEnabled: "auto" | "true" | "false",
+	modelOverride?: string,
+	engineArgs?: string[],
+): Promise<ParallelAgentResult> {
+	const uniqueSuffix = Math.random().toString(36).substring(2, 8);
+	const sandboxDir = join(sandboxBase, `agent-${agentNum}-${uniqueSuffix}`);
+	let branchName = "";
+
+	try {
+		// Create sandbox
+		const sandboxResult = await createSandbox({
+			originalDir,
+			sandboxDir,
+			agentNum,
+		});
+
+		logDebug(
+			`Agent ${agentNum}: Created sandbox (${sandboxResult.symlinksCreated} symlinks, ${sandboxResult.filesCopied} copies)`,
+		);
+
+		// Copy PRD file or folder to sandbox (same as worktree mode)
+		if (prdSource === "markdown" || prdSource === "yaml") {
+			const srcPath = join(originalDir, prdFile);
+			const destPath = join(sandboxDir, prdFile);
+			if (existsSync(srcPath)) {
+				copyFileSync(srcPath, destPath);
+			}
+		} else if (prdSource === "markdown-folder" && prdIsFolder) {
+			const srcPath = join(originalDir, prdFile);
+			const destPath = join(sandboxDir, prdFile);
+			if (existsSync(srcPath)) {
+				cpSync(srcPath, destPath, { recursive: true });
+			}
+		}
+
+		// Ensure .ralphy/ exists in sandbox
+		const ralphyDir = join(sandboxDir, RALPHY_DIR);
+		if (!existsSync(ralphyDir)) {
+			mkdirSync(ralphyDir, { recursive: true });
+		}
+
+		// Build prompt
+		const prompt = buildParallelPrompt({
+			task: task.title,
+			progressFile: PROGRESS_FILE,
+			skipTests,
+			skipLint,
+			browserEnabled,
+			allowCommit: false,
+		});
+
+		// Execute with retry
+		const engineOptions = {
+			...(modelOverride && { modelOverride }),
+			...(engineArgs && engineArgs.length > 0 && { engineArgs }),
+		};
+		const result = await withRetry(
+			async () => {
+				const res = await engine.execute(prompt, sandboxDir, engineOptions);
+				if (!res.success && res.error && isRetryableError(res.error)) {
+					throw new Error(res.error);
+				}
+				return res;
+			},
+			{ maxRetries, retryDelay },
+		);
+
+		return { task, agentNum, worktreeDir: sandboxDir, branchName, result, usedSandbox: true };
+	} catch (error) {
+		const errorMsg = error instanceof Error ? error.message : String(error);
+		return {
+			task,
+			agentNum,
+			worktreeDir: sandboxDir,
+			branchName,
+			result: null,
+			error: errorMsg,
+			usedSandbox: true,
+		};
+	}
+}
+
+/**
+ * Run tasks in parallel using worktrees or sandboxes
  */
 export async function runParallel(
 	options: ExecutionOptions & {
@@ -151,6 +261,7 @@ export async function runParallel(
 		browserEnabled,
 		modelOverride,
 		skipMerge,
+		useSandbox = false,
 		engineArgs,
 	} = options;
 
@@ -161,9 +272,13 @@ export async function runParallel(
 		totalOutputTokens: 0,
 	};
 
-	// Get worktree base directory
-	const worktreeBase = getWorktreeBase(workDir);
-	logDebug(`Worktree base: ${worktreeBase}`);
+	// Get base directory for worktrees or sandboxes
+	const isolationBase = useSandbox ? getSandboxBase(workDir) : getWorktreeBase(workDir);
+	logDebug(`${useSandbox ? "Sandbox" : "Worktree"} base: ${isolationBase}`);
+
+	if (useSandbox) {
+		logInfo("Using lightweight sandbox mode (faster for large repos)");
+	}
 
 	// Save starting branch to restore after merge phase
 	const startingBranch = await getCurrentBranch(workDir);
@@ -229,15 +344,36 @@ export async function runParallel(
 			continue;
 		}
 
-		// Run agents in parallel
+		// Run agents in parallel (using sandbox or worktree mode)
 		const promises = batch.map((task) => {
 			globalAgentNum++;
+
+			if (useSandbox) {
+				return runAgentInSandbox(
+					engine,
+					task,
+					globalAgentNum,
+					isolationBase,
+					workDir,
+					prdSource,
+					prdFile,
+					prdIsFolder,
+					maxRetries,
+					retryDelay,
+					skipTests,
+					skipLint,
+					browserEnabled,
+					modelOverride,
+					engineArgs,
+				);
+			}
+
 			return runAgentInWorktree(
 				engine,
 				task,
 				globalAgentNum,
 				baseBranch,
-				worktreeBase,
+				isolationBase,
 				workDir,
 				prdSource,
 				prdFile,
@@ -258,13 +394,50 @@ export async function runParallel(
 		const worktreesToCleanup: Array<{ worktreeDir: string; branchName: string }> = [];
 
 		for (const agentResult of results) {
-			const { task, worktreeDir, branchName, result: aiResult, error } = agentResult;
+			const {
+				task,
+				agentNum,
+				worktreeDir,
+				result: aiResult,
+				error,
+				usedSandbox: agentUsedSandbox,
+			} = agentResult;
+			let branchName = agentResult.branchName;
+			let failureReason: string | undefined = error;
+			let preserveSandbox = false;
 
-			if (error) {
-				logError(`Task "${task.title}" failed: ${error}`);
+			if (!failureReason && aiResult?.success && agentUsedSandbox && worktreeDir) {
+				try {
+					const modifiedFiles = await getModifiedFiles(worktreeDir, workDir);
+					if (modifiedFiles.length > 0) {
+						const commitResult = await commitSandboxChanges(
+							workDir,
+							modifiedFiles,
+							worktreeDir,
+							task.title,
+							agentNum,
+							originalBaseBranch,
+						);
+
+						if (commitResult.success) {
+							branchName = commitResult.branchName;
+							logDebug(`Agent ${agentNum}: Committed ${commitResult.filesCommitted} files to ${branchName}`);
+						} else {
+							failureReason = commitResult.error || "Failed to commit sandbox changes";
+							preserveSandbox = true; // Preserve work for manual recovery
+						}
+					}
+				} catch (commitErr) {
+					failureReason = commitErr instanceof Error ? commitErr.message : String(commitErr);
+					preserveSandbox = true; // Preserve work for manual recovery
+				}
+			}
+
+			if (failureReason) {
+				logError(`Task "${task.title}" failed: ${failureReason}`);
 				logTaskProgress(task.title, "failed", workDir);
 				result.tasksFailed++;
-				notifyTaskFailed(task.title, error);
+				notifyTaskFailed(task.title, failureReason);
 			} else if (aiResult?.success) {
 				logSuccess(`Task "${task.title}" completed`);
 				result.totalInputTokens += aiResult.inputTokens;
@@ -285,11 +458,23 @@ export async function runParallel(
 				logTaskProgress(task.title, "failed", workDir);
 				result.tasksFailed++;
 				notifyTaskFailed(task.title, errMsg);
+				failureReason = errMsg;
 			}
 
-			// Collect worktree for cleanup (will be done in parallel below)
+			// Cleanup sandbox inline or collect worktree for parallel cleanup
 			if (worktreeDir) {
-				worktreesToCleanup.push({ worktreeDir, branchName });
+				if (agentUsedSandbox) {
+					if (failureReason || preserveSandbox) {
+						logWarn(`Sandbox preserved for manual review: ${worktreeDir}`);
+					} else {
+						// Sandbox cleanup is simpler - just delete the directory
+						await cleanupSandbox(worktreeDir);
+						logDebug(`Cleaned up sandbox: ${worktreeDir}`);
+					}
+				} else {
+					// Collect worktree for parallel cleanup below
+					worktreesToCleanup.push({ worktreeDir, branchName });
+				}
 			}
 		}
 
