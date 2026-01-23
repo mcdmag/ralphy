@@ -3,7 +3,7 @@ import { logDebug, logWarn } from "../ui/logger.ts";
 interface RetryOptions {
 	maxRetries: number;
 	retryDelay: number; // base delay in seconds
-	onRetry?: (attempt: number, error: string, nextDelayMs: number) => void;
+	onRetry?: (attempt: number, error?: string, nextDelayMs?: number) => void;
 	/** Use exponential backoff (default: true) */
 	exponentialBackoff?: boolean;
 	/** Maximum delay in seconds (default: 60) */
