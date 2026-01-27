@@ -56,11 +56,17 @@ export function buildPrompt(options: PromptOptions): string {
 		parts.push(`## Rules (you MUST follow these)\n${rules.join("\n")}`);
 	}
 
-	// Add boundaries
-	const boundaries = loadBoundaries(workDir);
-	if (boundaries.length > 0) {
-		parts.push(`## Boundaries\nDo NOT modify these files/directories:\n${boundaries.join("\n")}`);
-	}
+	// Add boundaries - combine system boundaries with user-defined boundaries
+	// System boundaries come first to ensure they are prominently visible
+	const userBoundaries = loadBoundaries(workDir);
+	const systemBoundaries = [
+		prdFile || "the PRD file",
+		".ralphy/progress.txt",
+		".ralphy-worktrees",
+		".ralphy-sandboxes",
+	];
+	const allBoundaries = [...systemBoundaries, ...userBoundaries];
+	parts.push(`## Boundaries\nDo NOT modify these files/directories:\n${allBoundaries.map((b) => `- ${b}`).join("\n")}\n\nKeep changes focused and minimal. Do not refactor unrelated code.`);
 
 	// Agent skills/playbooks (optional)
 	const skillRoots = detectAgentSkills(workDir);
@@ -112,16 +118,6 @@ export function buildPrompt(options: PromptOptions): string {
 
 	parts.push(`## Instructions\n${instructions.join("\n")}`);
 
-	// Add final note
-	const prdNote = prdFile ? `Do NOT modify ${prdFile}.` : "Do NOT modify the PRD file.";
-	parts.push(
-		[
-			prdNote,
-			"Do NOT modify .ralphy/progress.txt, .ralphy-worktrees, or .ralphy-sandboxes.",
-			"Keep changes focused and minimal. Do not refactor unrelated code.",
-		].join(" "),
-	);
-
 	return parts.join("\n\n");
 }
 
@@ -165,6 +161,15 @@ export function buildParallelPrompt(options: ParallelPromptOptions): string {
 		? `\n\n${getBrowserInstructions()}`
 		: "";
 
+	// Build boundaries section with system files first
+	const boundariesList = [
+		prdFile || "the PRD file",
+		".ralphy/progress.txt",
+		".ralphy-worktrees",
+		".ralphy-sandboxes",
+	];
+	const boundariesSection = `\n\nBoundaries - Do NOT modify:\n${boundariesList.map((b) => `- ${b}`).join("\n")}\n\nDo NOT mark tasks complete - that will be handled separately.\nKeep changes focused and minimal. Do not refactor unrelated code.`;
+
 	const instructions = ["1. Implement this specific task completely"];
 
 	let step = 2;
@@ -190,13 +195,10 @@ export function buildParallelPrompt(options: ParallelPromptOptions): string {
 
 	return `You are working on a specific task. Focus ONLY on this task:
 
-TASK: ${task}${browserSection}${skillsSection}
+TASK: ${task}${boundariesSection}${browserSection}${skillsSection}
 
 Instructions:
 ${instructions.join("\n")}
 
-${prdFile ? `Do NOT modify ${prdFile}.` : "Do NOT modify the PRD file."}
-Do NOT modify .ralphy/progress.txt, .ralphy-worktrees, or .ralphy-sandboxes.
-Do NOT mark tasks complete - that will be handled separately.
 Focus only on implementing: ${task}`;
 }
