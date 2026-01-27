@@ -180,14 +180,17 @@ export function buildParallelPrompt(options: ParallelPromptOptions): string {
 			? `\n\nRules (you MUST follow these):\n${codeChangeRules.map((r) => `- ${r}`).join("\n")}`
 			: "";
 
-	// Build boundaries section with system files first
-	const boundariesList = [
+	// Build boundaries section - combine system boundaries with user-defined boundaries
+	// System boundaries come first to ensure they are prominently visible
+	const userBoundaries = loadBoundaries(process.cwd());
+	const systemBoundaries = [
 		prdFile || "the PRD file",
 		".ralphy/progress.txt",
 		".ralphy-worktrees",
 		".ralphy-sandboxes",
 	];
-	const boundariesSection = `\n\nBoundaries - Do NOT modify:\n${boundariesList.map((b) => `- ${b}`).join("\n")}\n\nDo NOT mark tasks complete - that will be handled separately.`;
+	const allBoundaries = [...systemBoundaries, ...userBoundaries];
+	const boundariesSection = `\n\nBoundaries - Do NOT modify:\n${allBoundaries.map((b) => `- ${b}`).join("\n")}\n\nDo NOT mark tasks complete - that will be handled separately.`;
 
 	const instructions = ["1. Implement this specific task completely"];
 
