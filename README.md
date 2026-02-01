@@ -30,6 +30,182 @@ cd ralphy && chmod +x ralphy.sh
 
 Both versions have identical features. Examples below use `ralphy` (npm) - substitute `./ralphy.sh` if using the bash script.
 
+## New Machine Setup
+
+Complete setup guide for a fresh machine. Follow these steps in order:
+
+### 1. Install Prerequisites
+
+**Node.js 18+ or Bun** (required for npm version):
+```bash
+# Option A: Install Node.js via nvm (recommended)
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+source ~/.bashrc  # or ~/.zshrc on macOS
+nvm install 18
+nvm use 18
+
+# Option B: Install Bun (faster alternative)
+curl -fsSL https://bun.sh/install | bash
+```
+
+**Git** (required):
+```bash
+# macOS
+xcode-select --install
+
+# Ubuntu/Debian
+sudo apt-get install git
+
+# Verify
+git --version
+```
+
+**GitHub CLI** (optional, for `--create-pr` and `--github`):
+```bash
+# macOS
+brew install gh
+
+# Ubuntu/Debian
+sudo apt-get install gh
+
+# Authenticate
+gh auth login
+```
+
+### 2. Install an AI Engine
+
+Install at least one AI coding CLI:
+
+```bash
+# Claude Code (recommended)
+npm install -g @anthropic-ai/claude-code
+
+# OpenCode
+npm install -g opencode
+
+# GitHub Copilot CLI
+gh extension install github/gh-copilot
+
+# Gemini CLI
+npm install -g @anthropic-ai/gemini-cli
+
+# Cursor - download from https://cursor.com
+# Qwen-Code - follow https://github.com/QwenLM/Qwen-Agent
+# Factory Droid - follow https://docs.factory.ai/cli/getting-started/quickstart
+```
+
+**Verify AI engine works:**
+```bash
+claude --version      # or opencode --version, etc.
+```
+
+### 3. Install Ralphy
+
+**Option A: npm (recommended)**
+```bash
+npm install -g ralphy-cli
+
+# Verify
+ralphy --help
+```
+
+**Option B: Clone repository**
+```bash
+git clone https://github.com/michaelshimeles/ralphy.git
+cd ralphy
+chmod +x ralphy.sh
+
+# For TypeScript CLI features
+cd cli && bun install && npm link && cd ..
+
+# Verify
+ralphy --help  # or ./ralphy.sh --help
+```
+
+### 4. Configure Project (Optional)
+
+Initialize Ralphy config in your project:
+```bash
+cd /path/to/your/project
+ralphy --init
+```
+
+This creates `.ralphy/config.yaml` with auto-detected settings.
+
+### 5. Verify Setup
+
+Run a quick test:
+```bash
+# Test with a simple task
+ralphy "echo hello world to a test.txt file" --dry-run
+
+# Or if you have a PRD.md
+ralphy --prd PRD.md --dry-run
+```
+
+### Quick Setup Script
+
+For automated setup, run this script:
+```bash
+#!/bin/bash
+# quick-setup.sh - One-command Ralphy setup
+
+set -e
+
+# Install Node.js if missing
+if ! command -v node &> /dev/null; then
+    echo "Installing Node.js..."
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+    export NVM_DIR="$HOME/.nvm"
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    nvm install 18
+fi
+
+# Install Ralphy
+echo "Installing Ralphy..."
+npm install -g ralphy-cli
+
+# Install Claude Code (default engine)
+if ! command -v claude &> /dev/null; then
+    echo "Installing Claude Code..."
+    npm install -g @anthropic-ai/claude-code
+fi
+
+# Verify
+echo "Setup complete!"
+ralphy --help
+```
+
+### Troubleshooting
+
+**"ralphy: command not found"**
+```bash
+# Check npm global bin is in PATH
+npm bin -g
+# Add to PATH if needed
+export PATH="$PATH:$(npm bin -g)"
+```
+
+**"claude/opencode: command not found"**
+```bash
+# Reinstall the AI engine
+npm install -g @anthropic-ai/claude-code
+# Or use a different engine
+ralphy --opencode "task"
+```
+
+**Permission errors on macOS**
+```bash
+# Fix npm permissions
+sudo chown -R $(whoami) ~/.npm
+```
+
+**Rate limits with AI engines**
+```bash
+# Use the clean-start script which handles rate limits
+./ralphy-clean-start.sh
+```
+
 ## Two Modes
 
 **Single task** - just tell it what to do:
@@ -325,6 +501,54 @@ ralphy --parallel --sandbox
 | `--init` | setup .ralphy/ config |
 | `--config` | show config |
 | `--add-rule "rule"` | add rule to config |
+
+## Utility Scripts
+
+Helper scripts for managing Ralphy processes:
+
+### ralphy-clean-start.sh
+
+Clean up stale processes and start fresh with automatic rate-limit handling:
+
+```bash
+./ralphy-clean-start.sh                    # Default: Gemini model, auto-retry Opus every 10min
+./ralphy-clean-start.sh --opus             # Force Opus model (may hit rate limits)
+./ralphy-clean-start.sh --claude           # Use Claude Code directly
+./ralphy-clean-start.sh --parallel         # Run tasks in parallel
+./ralphy-clean-start.sh --prd custom.md    # Use different PRD
+./ralphy-clean-start.sh --dry-run          # Preview without executing
+./ralphy-clean-start.sh --no-verbose       # Quiet mode (no streaming output)
+```
+
+**What it does:**
+1. Kills stale ralphy processes and tmux sessions
+2. Cleans up worktrees and sandboxes
+3. Ensures dependencies are installed and linked
+4. Starts Ralphy with specified options
+5. Auto-retries with model switching on rate limits (OpenCode only)
+
+**Rate limit handling (OpenCode):**
+- Runs tasks with Gemini (default)
+- If tasks remain, waits 10 minutes
+- Tries Opus model (in case quota reset)
+- If Opus rate-limited, switches back to Gemini
+- Repeats until all tasks complete
+
+### ralphy-kill.sh
+
+Kill all running Ralphy processes:
+
+```bash
+./ralphy-kill.sh           # Kill all ralphy processes
+./ralphy-kill.sh -v        # Show processes before killing
+```
+
+**What it kills:**
+- Ralphy processes
+- Worktree/sandbox processes
+- Tmux sessions with "ralphy" in the name
+
+**Note:** Neither script kills AI engine processes (claude, opencode, cursor, copilot) which may be used independently.
 
 ## Requirements
 
