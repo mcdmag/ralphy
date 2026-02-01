@@ -23,8 +23,10 @@ export interface EngineOptions {
 
 /**
  * Progress callback type for streaming execution
+ * @param step - The current step name (e.g., "Reading code", "Implementing")
+ * @param rawLine - Optional raw output line for verbose display
  */
-export type ProgressCallback = (step: string) => void;
+export type ProgressCallback = (step: string, rawLine?: string) => void;
 
 /**
  * AI Engine interface - one per AI tool
@@ -34,6 +36,8 @@ export interface AIEngine {
 	name: string;
 	/** CLI command to invoke */
 	cliCommand: string;
+	/** Default model used by this engine (if known) */
+	defaultModel?: string;
 	/** Check if the engine CLI is available */
 	isAvailable(): Promise<boolean>;
 	/** Execute a prompt and return the result */

@@ -17,6 +17,7 @@ const isWindows = process.platform === "win32";
 export class ClaudeEngine extends BaseAIEngine {
 	name = "Claude Code";
 	cliCommand = "claude";
+	defaultModel = "claude-opus-4-20250514";
 
 	async execute(prompt: string, workDir: string, options?: EngineOptions): Promise<AIResult> {
 		const args = ["--dangerously-skip-permissions", "--verbose", "--output-format", "stream-json"];
@@ -119,7 +120,10 @@ export class ClaudeEngine extends BaseAIEngine {
 				// Detect and report step changes
 				const step = detectStepFromOutput(line);
 				if (step) {
-					onProgress(step);
+					onProgress(step, line);
+				} else {
+					// Still pass the line for verbose output even if no step detected
+					onProgress("Working", line);
 				}
 			},
 			undefined,

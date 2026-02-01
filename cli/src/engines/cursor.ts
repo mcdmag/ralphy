@@ -16,6 +16,7 @@ const isWindows = process.platform === "win32";
 export class CursorEngine extends BaseAIEngine {
 	name = "Cursor Agent";
 	cliCommand = "agent";
+	defaultModel = "claude-sonnet-4";
 
 	async execute(prompt: string, workDir: string, options?: EngineOptions): Promise<AIResult> {
 		const args = ["--print", "--force", "--output-format", "stream-json"];
@@ -149,7 +150,10 @@ export class CursorEngine extends BaseAIEngine {
 				// Detect and report step changes
 				const step = detectStepFromOutput(line);
 				if (step) {
-					onProgress(step);
+					onProgress(step, line);
+				} else {
+					// Still pass the line for verbose output even if no step detected
+					onProgress("Working", line);
 				}
 			},
 			undefined,

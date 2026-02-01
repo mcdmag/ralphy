@@ -18,6 +18,7 @@ const isWindows = process.platform === "win32";
 export class GeminiEngine extends BaseAIEngine {
 	name = "Gemini CLI";
 	cliCommand = "gemini";
+	defaultModel = "gemini-2.5-pro";
 
 	async execute(prompt: string, workDir: string, options?: EngineOptions): Promise<AIResult> {
 		const args = ["--output-format", "stream-json", "--yolo"];
@@ -118,7 +119,10 @@ export class GeminiEngine extends BaseAIEngine {
 				// Detect and report step changes
 				const step = detectStepFromOutput(line);
 				if (step) {
-					onProgress(step);
+					onProgress(step, line);
+				} else {
+					// Still pass the line for verbose output even if no step detected
+					onProgress("Working", line);
 				}
 			},
 			undefined,

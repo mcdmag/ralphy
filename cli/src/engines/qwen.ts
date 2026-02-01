@@ -17,6 +17,7 @@ const isWindows = process.platform === "win32";
 export class QwenEngine extends BaseAIEngine {
 	name = "Qwen-Code";
 	cliCommand = "qwen";
+	defaultModel = "qwen2.5-coder";
 
 	async execute(prompt: string, workDir: string, options?: EngineOptions): Promise<AIResult> {
 		const args = ["--output-format", "stream-json", "--approval-mode", "yolo"];
@@ -117,7 +118,10 @@ export class QwenEngine extends BaseAIEngine {
 				// Detect and report step changes
 				const step = detectStepFromOutput(line);
 				if (step) {
-					onProgress(step);
+					onProgress(step, line);
+				} else {
+					// Still pass the line for verbose output even if no step detected
+					onProgress("Working", line);
 				}
 			},
 			undefined,

@@ -116,6 +116,11 @@ export function isRetryableError(error: string): boolean {
 		/ETIMEDOUT/,
 		/ENOTFOUND/,
 		/overloaded/i,
+		/endpoints? failed/i, // OpenCode Antigravity endpoint failures
+		/service unavailable/i,
+		/503/,
+		/502/,
+		/500/,
 	];
 
 	return retryablePatterns.some((pattern) => pattern.test(error));

@@ -7,7 +7,7 @@ import { isBrowserAvailable } from "../../execution/browser.ts";
 import { buildPrompt } from "../../execution/prompt.ts";
 import { isRetryableError, withRetry } from "../../execution/retry.ts";
 import { sendNotifications } from "../../notifications/webhook.ts";
-import { formatTokens, logError, logInfo, setVerbose } from "../../ui/logger.ts";
+import { formatTokens, logError, logInfo, logVerboseStream, setVerbose } from "../../ui/logger.ts";
 import { notifyTaskComplete, notifyTaskFailed } from "../../ui/notify.ts";
 import { buildActiveSettings } from "../../ui/settings.ts";
 import { ProgressSpinner } from "../../ui/spinner.ts";
@@ -78,8 +78,12 @@ export async function runTask(task: string, options: RuntimeOptions): Promise<vo
 					return await engine.executeStreaming(
 						prompt,
 						workDir,
-						(step) => {
+						(step, rawLine) => {
 							spinner.updateStep(step);
+							// In verbose mode, print streaming output
+							if (options.verbose && rawLine) {
+								logVerboseStream(rawLine);
+							}
 						},
 						engineOptions,
 					);
