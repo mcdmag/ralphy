@@ -141,7 +141,19 @@ export function checkForErrors(output: string): string | null {
 		try {
 			const parsed = JSON.parse(line);
 			if (parsed.type === "error") {
-				return parsed.error?.message || parsed.message || "Unknown error";
+				// Handle different error formats:
+				// - Claude: { error: { message: "..." } }
+				// - OpenCode: { error: { name: "...", data: { message: "..." } } }
+				// - Generic: { message: "..." }
+				const errorMsg =
+					parsed.error?.data?.message ||
+					parsed.error?.message ||
+					parsed.message ||
+					(parsed.error?.name
+						? `${parsed.error.name}: ${JSON.stringify(parsed.error.data || {})}`
+						: null) ||
+					"Unknown error";
+				return errorMsg;
 			}
 		} catch {
 			// Ignore non-JSON lines
@@ -380,6 +392,7 @@ export function detectStepFromOutput(line: string): string | null {
 export abstract class BaseAIEngine implements AIEngine {
 	abstract name: string;
 	abstract cliCommand: string;
+	defaultModel?: string;
 
 	async isAvailable(): Promise<boolean> {
 		return commandExists(this.cliCommand);

@@ -12,10 +12,18 @@ import { CachedTaskSource, createTaskSource } from "../../tasks/index.ts";
 import {
 	formatDuration,
 	formatTokens,
+	initTui,
+	logDebug,
+	logEngineInfo,
 	logError,
 	logInfo,
 	logSuccess,
 	setVerbose,
+	shouldUseTui,
+	startTui,
+	stopTui,
+	waitForTuiActive,
+	waitForTuiInput,
 } from "../../ui/logger.ts";
 import { notifyAllComplete } from "../../ui/notify.ts";
 import { buildActiveSettings } from "../../ui/settings.ts";
@@ -31,24 +39,83 @@ export async function runLoop(options: RuntimeOptions): Promise<void> {
 	// Set verbose mode
 	setVerbose(options.verbose);
 
+	// Initialize TUI if in interactive mode
+	const useTui = shouldUseTui() && !options.dryRun;
+
+	const exitWithError = async (code = 1) => {
+		if (useTui) {
+			logInfo("Press Enter to exit...");
+			await waitForTuiInput();
+			// Stop TUI to restore terminal
+			await stopTui();
+		}
+		process.exit(code);
+	};
+
+	if (options.verbose) {
+		logDebug(`TUI check: shouldUseTui=${shouldUseTui()}, dryRun=${options.dryRun}, useTui=${useTui}`);
+	}
+	if (useTui) {
+		try {
+			await initTui();
+			if (options.verbose) {
+				logDebug("TUI initialized successfully");
+			}
+			// Start TUI in background - DON'T await it
+			// The TUI runs concurrently while we continue with task processing
+			// TUI will handle all display; task processing continues below
+			const tuiPromise = startTui();
+
+			// Handle TUI exit (Ctrl+C) to clean up
+			tuiPromise.then(() => {
+				process.exit(0);
+			}).catch(async (err) => {
+				console.error("[TUI] Error:", err);
+				await exitWithError(1);
+			});
+
+			// Wait for TUI to be fully active before allowing logs to flow
+			// This prevents logs from being lost or printing to console before TUI takes over
+			await waitForTuiActive();
+		} catch (err) {
+			// TUI failed to initialize, fall back to console mode
+			console.error("[TUI] Failed to initialize:", err);
+		}
+	}
+
+
 	// Validate PRD source
-	if (options.prdSource === "markdown" || options.prdSource === "yaml" || options.prdSource === "json") {
+	if (
+		options.prdSource === "markdown" ||
+		options.prdSource === "yaml" ||
+		options.prdSource === "json"
+	) {
+		if (options.verbose) {
+			logDebug(`PRD Check: Source=${options.prdSource}, File=${options.prdFile}`);
+			logDebug(`CWD: ${process.cwd()}`);
+			if (options.prdFile) {
+				const resolved = await import("node:path").then((p) => p.resolve(options.prdFile));
+				logDebug(`Resolved PRD Path: ${resolved}`);
+				logDebug(`Exists: ${existsSync(options.prdFile)}`);
+			}
+		}
+
 		if (!existsSync(options.prdFile)) {
 			logError(`${options.prdFile} not found in current directory`);
 			logInfo(`Create a ${options.prdFile} file with tasks`);
-			process.exit(1);
+			await exitWithError(1);
 		}
 	} else if (options.prdSource === "markdown-folder") {
 		if (!existsSync(options.prdFile)) {
 			logError(`PRD folder ${options.prdFile} not found`);
 			logInfo(`Create a ${options.prdFile}/ folder with markdown files containing tasks`);
-			process.exit(1);
+			await exitWithError(1);
 		}
 	}
 
 	if (options.prdSource === "github" && !options.githubRepo) {
 		logError("GitHub repository not specified. Use --github owner/repo");
-		process.exit(1);
+		await exitWithError(1);
 	}
 
 	// Check engine availability
@@ -57,7 +124,7 @@ export async function runLoop(options: RuntimeOptions): Promise<void> {
 
 	if (!available) {
 		logError(`${engine.name} CLI not found. Make sure '${engine.cliCommand}' is in your PATH.`);
-		process.exit(1);
+		await exitWithError(1);
 	}
 
 	// Create task source with caching for better performance
@@ -87,21 +154,23 @@ export async function runLoop(options: RuntimeOptions): Promise<void> {
 			logError("Cannot run in parallel/branch mode: repository has no commits yet.");
 			logInfo("Please make an initial commit first:");
 			logInfo('  git add . && git commit -m "Initial commit"');
-			process.exit(1);
+			await exitWithError(1);
 		}
 	}
 
-	logInfo(`Starting Ralphy with ${engine.name}`);
-	logInfo(`Tasks remaining: ${remaining}`);
-	if (options.parallel) {
-		logInfo(`Mode: Parallel (max ${options.maxParallel} agents)`);
-	} else {
-		logInfo("Mode: Sequential");
-	}
-	if (isBrowserAvailable(options.browserEnabled)) {
-		logInfo("Browser automation enabled (agent-browser)");
-	}
-	console.log("");
+	// Determine the actual model being used
+	const actualModel = options.modelOverride || engine.defaultModel || "default";
+
+	// Show engine info prominently
+	const mode = options.parallel ? `Parallel (max ${options.maxParallel} agents)` : "Sequential";
+	logEngineInfo({
+		engine: engine.name,
+		model: actualModel,
+		tasks: remaining,
+		mode,
+		browserEnabled: isBrowserAvailable(options.browserEnabled),
+		verbose: options.verbose,
+	});
 
 	// Build active settings for display
 	const activeSettings = buildActiveSettings(options);
@@ -159,6 +228,7 @@ export async function runLoop(options: RuntimeOptions): Promise<void> {
 			skipMerge: options.skipMerge,
 			engineArgs: options.engineArgs,
 			syncIssue: options.syncIssue,
+			verbose: options.verbose,
 		});
 	}
 
@@ -168,16 +238,23 @@ export async function runLoop(options: RuntimeOptions): Promise<void> {
 
 	// Summary
 	const duration = Date.now() - startTime;
-	console.log("");
-	console.log("=".repeat(50));
-	logInfo("Summary:");
-	console.log(`  Completed: ${result.tasksCompleted}`);
-	console.log(`  Failed:    ${result.tasksFailed}`);
-	console.log(`  Duration:  ${formatDuration(duration)}`);
+	const summaryLines = [
+		"",
+		"=".repeat(50),
+		"Summary:",
+		`  Completed: ${result.tasksCompleted}`,
+		`  Failed:    ${result.tasksFailed}`,
+		`  Duration:  ${formatDuration(duration)}`,
+	];
 	if (result.totalInputTokens > 0 || result.totalOutputTokens > 0) {
-		console.log(`  Tokens:    ${formatTokens(result.totalInputTokens, result.totalOutputTokens)}`);
+		summaryLines.push(`  Tokens:    ${formatTokens(result.totalInputTokens, result.totalOutputTokens)}`);
 	}
-	console.log("=".repeat(50));
+	summaryLines.push("=".repeat(50));
+
+	// Log summary (will go to TUI if active, otherwise console)
+	for (const line of summaryLines) {
+		logInfo(line);
+	}
 
 	// Send webhook notifications
 	const status = result.tasksFailed > 0 ? "failed" : "completed";
@@ -191,6 +268,12 @@ export async function runLoop(options: RuntimeOptions): Promise<void> {
 	}
 
 	if (result.tasksFailed > 0) {
-		process.exit(1);
+		await exitWithError(1);
+	}
+
+	if (useTui) {
+		logInfo("Press Enter to finish...");
+		await waitForTuiInput();
+		await stopTui();
 	}
 }

@@ -16,6 +16,7 @@ const isWindows = process.platform === "win32";
 export class DroidEngine extends BaseAIEngine {
 	name = "Factory Droid";
 	cliCommand = "droid";
+	defaultModel = "claude-sonnet-4";
 
 	async execute(prompt: string, workDir: string, options?: EngineOptions): Promise<AIResult> {
 		const args = ["exec", "--output-format", "stream-json", "--auto", "medium"];

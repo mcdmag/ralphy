@@ -11,6 +11,7 @@ const isWindows = process.platform === "win32";
 export class CodexEngine extends BaseAIEngine {
 	name = "Codex";
 	cliCommand = "codex";
+	defaultModel = "o3-mini";
 
 	async execute(prompt: string, workDir: string, options?: EngineOptions): Promise<AIResult> {
 		// Codex uses a separate file for the last message

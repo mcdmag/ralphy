@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// Path to the TUI preload script (for JSX transformation with Solid.js)
+const tuiPreloadPath = join(__dirname, "node_modules", "@opentui", "solid", "scripts", "preload.ts");
 const isWindows = process.platform === "win32";
 
 function getPlatformBinary() {
@@ -64,7 +67,22 @@ function main() {
 			for (const runner of runners) {
 				if (!commandExists(runner)) continue;
 
-				const runnerArgs = runner === "bun" ? ["run", srcPath] : [srcPath];
+				// For bun, use bunfig.toml from the ralphy/cli directory
+				// The bunfig.toml contains preload and the TUI dependencies
+				let runnerArgs;
+				let runnerCwd = process.cwd();
+				if (runner === "bun") {
+					// We use --conditions=browser to enable TUI support
+					// We keep CWD as process.cwd() so user paths work
+					// We explicitlly add preload to ensure JSX config works without bunfig.toml
+					runnerArgs = [
+						"--conditions=browser",
+						"--preload", tuiPreloadPath,
+						srcPath
+					];
+				} else {
+					runnerArgs = [srcPath];
+				}
 				const userArgs = process.argv.slice(2);
 
 				let result;
@@ -73,12 +91,12 @@ function main() {
 					// Node.js handles argument escaping when passed as array
 					result = spawnSync("cmd.exe", ["/c", runner, ...runnerArgs, ...userArgs], {
 						stdio: "inherit",
-						cwd: process.cwd(),
+						cwd: runnerCwd,
 					});
 				} else {
 					result = spawnSync(runner, [...runnerArgs, ...userArgs], {
 						stdio: "inherit",
-						cwd: process.cwd(),
+						cwd: runnerCwd,
 					});
 				}
 

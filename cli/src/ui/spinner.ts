@@ -4,6 +4,27 @@ import { formatDuration } from "./logger.ts";
 
 export type SpinnerInstance = ReturnType<typeof createSpinner>;
 
+// TUI integration - lazy import
+let tuiModule: typeof import("../tui/index.tsx") | null = null;
+
+function isTuiActive(): boolean {
+	return tuiModule?.isTuiActive() ?? false;
+}
+
+async function getTuiModule() {
+	if (!tuiModule) {
+		try {
+			tuiModule = await import("../tui/index.tsx");
+		} catch {
+			// TUI not available
+		}
+	}
+	return tuiModule;
+}
+
+// Pre-load TUI module
+getTuiModule();
+
 /**
  * Operation timing entry for tracking step durations
  */
@@ -20,9 +41,10 @@ interface OperationTiming {
  * - Shows current step with elapsed time
  * - Tracks step transitions for performance visibility
  * - Optional operation timing breakdown in success message
+ * - TUI integration when TUI mode is active
  */
 export class ProgressSpinner {
-	private spinner: SpinnerInstance;
+	private spinner: SpinnerInstance | null = null;
 	private startTime: number;
 	private currentStep = "Thinking";
 	private task: string;
@@ -30,19 +52,27 @@ export class ProgressSpinner {
 	private tickInterval: ReturnType<typeof setInterval> | null = null;
 	private stepHistory: OperationTiming[] = [];
 	private stepStartTime: number;
+	private useTui: boolean;
 
 	constructor(task: string, settings?: string[]) {
 		this.task = task.length > 40 ? `${task.slice(0, 37)}...` : task;
 		this.settings = settings?.length ? `[${settings.join(", ")}]` : "";
 		this.startTime = Date.now();
 		this.stepStartTime = Date.now();
-		this.spinner = createSpinner(this.formatText()).start();
+		this.useTui = isTuiActive();
+
+		if (this.useTui && tuiModule) {
+			// Use TUI spinner
+			tuiModule.startSpinner(this.currentStep);
+		} else {
+			// Use nanospinner
+			this.spinner = createSpinner(this.formatText()).start();
+			// Update timer every second
+			this.tickInterval = setInterval(() => this.tick(), 1000);
+		}
 
 		// Record initial step
 		this.stepHistory.push({ name: this.currentStep, startTime: this.stepStartTime });
-
-		// Update timer every second
-		this.tickInterval = setInterval(() => this.tick(), 1000);
 	}
 
 	private formatText(): string {
@@ -72,14 +102,21 @@ export class ProgressSpinner {
 		this.stepStartTime = now;
 		this.stepHistory.push({ name: step, startTime: now });
 
-		this.spinner.update({ text: this.formatText() });
+		if (this.useTui && tuiModule) {
+			tuiModule.updateSpinnerStep(step);
+		} else if (this.spinner) {
+			this.spinner.update({ text: this.formatText() });
+		}
 	}
 
 	/**
 	 * Update spinner text (called periodically to update time)
 	 */
 	tick(): void {
-		this.spinner.update({ text: this.formatText() });
+		if (this.spinner) {
+			this.spinner.update({ text: this.formatText() });
+		}
+		// TUI updates time automatically via its own interval
 	}
 
 	private clearTickInterval(): void {
@@ -126,7 +163,12 @@ export class ProgressSpinner {
 			}
 		}
 
-		this.spinner.success({ text: `${text} ${pc.green(`[${elapsed}]`)}` });
+		if (this.useTui && tuiModule) {
+			tuiModule.stopSpinner();
+			tuiModule.addLog("success", `${text} [${elapsed}]`);
+		} else if (this.spinner) {
+			this.spinner.success({ text: `${text} ${pc.green(`[${elapsed}]`)}` });
+		}
 	}
 
 	/**
@@ -135,7 +177,13 @@ export class ProgressSpinner {
 	error(message?: string): void {
 		this.clearTickInterval();
 		const elapsed = formatDuration(this.getElapsedMs());
-		this.spinner.error({ text: `${message || this.formatText()} ${pc.red(`[${elapsed}]`)}` });
+
+		if (this.useTui && tuiModule) {
+			tuiModule.stopSpinner();
+			tuiModule.addLog("error", `${message || this.formatText()} [${elapsed}]`);
+		} else if (this.spinner) {
+			this.spinner.error({ text: `${message || this.formatText()} ${pc.red(`[${elapsed}]`)}` });
+		}
 	}
 
 	/**
@@ -143,7 +191,20 @@ export class ProgressSpinner {
 	 */
 	stop(): void {
 		this.clearTickInterval();
-		this.spinner.stop();
+		if (this.useTui && tuiModule) {
+			tuiModule.stopSpinner();
+		} else if (this.spinner) {
+			this.spinner.stop();
+		}
+	}
+
+	/**
+	 * Set engine and model info for display
+	 */
+	setEngineInfo(engine: string, model: string): void {
+		if (this.useTui && tuiModule) {
+			tuiModule.updateSpinnerInfo(engine, model);
+		}
 	}
 }
 

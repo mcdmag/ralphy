@@ -27,7 +27,7 @@ AUTO_COMMIT=true
 # Runtime options
 SKIP_TESTS=false
 SKIP_LINT=false
-AI_ENGINE="claude"  # claude, opencode, cursor, codex, qwen, droid, or copilot
+AI_ENGINE="claude"  # claude, opencode, cursor, codex, qwen, droid, copilot, or antigravity
 MODEL_OVERRIDE=""   # Override default model for any engine (e.g., "sonnet", "gpt-4o-mini")
 DRY_RUN=false
 MAX_ITERATIONS=0  # 0 = unlimited
@@ -626,9 +626,10 @@ run_brownfield_task() {
         -p "$prompt" 2>&1 | tee "$output_file"
       ;;
     opencode)
-      opencode --output-format stream-json \
-        --approval-mode full-auto \
-        ${MODEL_OVERRIDE:+--model "$MODEL_OVERRIDE"} \
+      local oc_model="${MODEL_OVERRIDE:-google/antigravity-claude-opus-4-5-thinking}"
+      OPENCODE_PERMISSION='{"*":"allow"}' opencode run \
+        --model "$oc_model" \
+        --format json \
         "$prompt" 2>&1 | tee "$output_file"
       ;;
     cursor)
@@ -653,6 +654,10 @@ run_brownfield_task() {
     codex)
       codex exec --full-auto \
         --json \
+        "$prompt" 2>&1 | tee "$output_file"
+      ;;
+    antigravity)
+      antigravity chat --mode agent \
         "$prompt" 2>&1 | tee "$output_file"
       ;;
   esac
@@ -702,6 +707,7 @@ ${BOLD}AI ENGINE OPTIONS:${RESET}
   --qwen              Use Qwen-Code
   --droid             Use Factory Droid
   --copilot           Use GitHub Copilot
+  --antigravity       Use Antigravity CLI
   --model <name>      Override default model for any engine
                       Claude: sonnet, haiku, opus
                       OpenCode: gpt-4o, gpt-4o-mini, o1, o3-mini
@@ -830,6 +836,10 @@ parse_args() {
         ;;
       --copilot)
         AI_ENGINE="copilot"
+        shift
+        ;;
+      --antigravity)
+        AI_ENGINE="antigravity"
         shift
         ;;
       --model)
@@ -1034,6 +1044,12 @@ check_requirements() {
     copilot)
       if ! command -v copilot &>/dev/null; then
         log_error "GitHub Copilot CLI not found. Install with: npm install -g @github/copilot"
+        exit 1
+      fi
+      ;;
+    antigravity)
+      if ! command -v antigravity &>/dev/null; then
+        log_error "Antigravity CLI not found. Install from your Antigravity IDE extension."
         exit 1
       fi
       ;;
@@ -1677,9 +1693,10 @@ run_ai_command() {
 
   case "$AI_ENGINE" in
     opencode)
-      # OpenCode: use 'run' command with JSON format and permissive settings
+      # OpenCode: use 'run' command with JSON format and Antigravity auth
+      local oc_model="${MODEL_OVERRIDE:-google/antigravity-claude-opus-4-5-thinking}"
       OPENCODE_PERMISSION='{"*":"allow"}' opencode run \
-        ${MODEL_OVERRIDE:+--model "$MODEL_OVERRIDE"} \
+        --model "$oc_model" \
         --format json \
         "$prompt" > "$output_file" 2>&1 &
       ;;
@@ -1713,6 +1730,11 @@ run_ai_command() {
       codex exec --full-auto \
         --json \
         --output-last-message "$CODEX_LAST_MESSAGE_FILE" \
+        "$prompt" > "$output_file" 2>&1 &
+      ;;
+    antigravity)
+      # Antigravity: use chat command with agent mode
+      antigravity chat --mode agent \
         "$prompt" > "$output_file" 2>&1 &
       ;;
     *)
@@ -2242,8 +2264,9 @@ Focus only on implementing: $task_name"
       opencode)
         (
           cd "$worktree_dir"
+          local oc_model="${MODEL_OVERRIDE:-google/antigravity-claude-opus-4-5-thinking}"
           OPENCODE_PERMISSION='{"*":"allow"}' opencode run \
-            ${MODEL_OVERRIDE:+--model "$MODEL_OVERRIDE"} \
+            --model "$oc_model" \
             --format json \
             "$prompt"
         ) > "$tmpfile" 2>>"$log_file"
@@ -2851,8 +2874,9 @@ Be careful to preserve functionality from BOTH branches. The goal is to integrat
 
           case "$AI_ENGINE" in
             opencode)
+              local oc_model="${MODEL_OVERRIDE:-google/antigravity-claude-opus-4-5-thinking}"
               OPENCODE_PERMISSION='{"*":"allow"}' opencode run \
-                ${MODEL_OVERRIDE:+--model "$MODEL_OVERRIDE"} \
+                --model "$oc_model" \
                 --format json \
                 "$resolve_prompt" > "$resolve_tmpfile" 2>&1
               ;;
@@ -2879,6 +2903,10 @@ Be careful to preserve functionality from BOTH branches. The goal is to integrat
             codex)
               codex exec --full-auto \
                 --json \
+                "$resolve_prompt" > "$resolve_tmpfile" 2>&1
+              ;;
+            antigravity)
+              antigravity chat --mode agent \
                 "$resolve_prompt" > "$resolve_tmpfile" 2>&1
               ;;
             *)
@@ -3031,6 +3059,7 @@ main() {
       qwen) command -v qwen &>/dev/null || { log_error "Qwen-Code CLI not found"; exit 1; } ;;
       droid) command -v droid &>/dev/null || { log_error "Factory Droid CLI not found"; exit 1; } ;;
       copilot) command -v copilot &>/dev/null || { log_error "GitHub Copilot CLI not found"; exit 1; } ;;
+      antigravity) command -v antigravity &>/dev/null || { log_error "Antigravity CLI not found"; exit 1; } ;;
     esac
 
     if ! git rev-parse --git-dir >/dev/null 2>&1; then
@@ -3049,6 +3078,7 @@ main() {
       qwen) engine_display="${GREEN}Qwen-Code${RESET}" ;;
       droid) engine_display="${MAGENTA}Factory Droid${RESET}" ;;
       copilot) engine_display="${BLUE}GitHub Copilot${RESET}" ;;
+      antigravity) engine_display="${CYAN}Antigravity${RESET}" ;;
       *) engine_display="${MAGENTA}Claude Code${RESET}" ;;
     esac
     echo "Engine: $engine_display"
@@ -3085,6 +3115,7 @@ main() {
     qwen) engine_display="${GREEN}Qwen-Code${RESET}" ;;
     droid) engine_display="${MAGENTA}Factory Droid${RESET}" ;;
     copilot) engine_display="${BLUE}GitHub Copilot${RESET}" ;;
+    antigravity) engine_display="${CYAN}Antigravity${RESET}" ;;
     *) engine_display="${MAGENTA}Claude Code${RESET}" ;;
   esac
   echo "Engine: $engine_display"

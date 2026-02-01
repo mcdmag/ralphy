@@ -233,11 +233,24 @@ notifications:
   custom_webhook: "https://your-api.com/webhook"
 ```
 
+## Interactive Chat & Steering
+
+Ralphy isn't just a runner; it's a collaborator. You can chat with Ralphy **while it works**:
+
+1.  **Interleaved Chat**: Type in the terminal at any time. Ralphy answers in parallel (magenta logs) without stopping the active task.
+2.  **Unified Context**: The Chat Agent sees the **Live Output Stream** and **Active Task Details**. You can ask: *"What logic are you implementing right now?"*
+3.  **Dynamic Steering**: Give instructions mid-flight!
+    - *"Make sure to handle the null case"*
+    - *"Skip the unit tests for this one"*
+    - Ralphy captures this as **Feedback** and automatically applies it as the prompt for the next step.
+
 ## Requirements
 
 - Node.js 18+ or Bun
 - AI CLI: [Claude Code](https://github.com/anthropics/claude-code), [OpenCode](https://opencode.ai/docs/), [Cursor](https://cursor.com), Codex, Qwen-Code, [Factory Droid](https://docs.factory.ai/cli/getting-started/quickstart), or [GitHub Copilot](https://docs.github.com/en/copilot)
 - `gh` (optional, for GitHub issues / `--create-pr`)
+
+**Compatibility**: Ralphy works seamlessly on macOS, Linux, and Windows (WSL recommended for best TUI experience). The interactive chat and TUI are fully cross-platform.
 
 ## Links
 

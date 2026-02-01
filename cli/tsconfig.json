@@ -12,9 +12,25 @@
 		"resolveJsonModule": true,
 		"allowImportingTsExtensions": true,
 		"noEmit": true,
-		"lib": ["ES2022"],
-		"types": ["bun-types"]
+		"lib": [
+			"ES2022",
+			"DOM",
+			"DOM.Iterable"
+		],
+		"types": [
+			"bun-types"
+		],
+		"jsx": "preserve",
+		"jsxImportSource": "@opentui/solid",
+		"customConditions": [
+			"browser"
+		]
 	},
-	"include": ["src/**/*"],
-	"exclude": ["node_modules", "dist"]
+	"include": [
+		"src/**/*"
+	],
+	"exclude": [
+		"node_modules",
+		"dist"
+	]
 }

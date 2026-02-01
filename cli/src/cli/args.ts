@@ -56,7 +56,8 @@ export function createProgram(): Command {
 		.option("--model <name>", "Override default model for the engine")
 		.option("--sonnet", "Shortcut for --claude --model sonnet")
 		.option("--no-merge", "Skip automatic branch merging after parallel execution")
-		.option("-v, --verbose", "Verbose output")
+		.option("-v, --verbose", "Verbose output (default: true)", true)
+		.option("--no-verbose", "Disable verbose output")
 		.allowUnknownOption();
 
 	return program;
@@ -103,8 +104,7 @@ export function parseArgs(args: string[]): {
 	const modelOverride = opts.sonnet ? "sonnet" : opts.model || undefined;
 
 	// Determine PRD source with auto-detection for file vs folder
-	let prdSource: "markdown" | "markdown-folder" | "yaml" | "json" | "github" =
-		"markdown";
+	let prdSource: "markdown" | "markdown-folder" | "yaml" | "json" | "github" = "markdown";
 	let prdFile = opts.prd || "PRD.md";
 	let prdIsFolder = false;
 
@@ -141,7 +141,7 @@ export function parseArgs(args: string[]): {
 		maxIterations: Number.parseInt(opts.maxIterations, 10) || 0,
 		maxRetries: Number.parseInt(opts.maxRetries, 10) || 3,
 		retryDelay: Number.parseInt(opts.retryDelay, 10) || 5,
-		verbose: opts.verbose || false,
+		verbose: opts.verbose !== false,
 		branchPerTask: opts.branchPerTask || false,
 		baseBranch: opts.baseBranch || "",
 		createPr: opts.createPr || false,
@@ -153,7 +153,7 @@ export function parseArgs(args: string[]): {
 		prdIsFolder,
 		githubRepo: opts.github || "",
 		githubLabel: opts.githubLabel || "",
-		syncIssue: opts.syncIssue ? (Number.parseInt(opts.syncIssue, 10) || undefined) : undefined,
+		syncIssue: opts.syncIssue ? Number.parseInt(opts.syncIssue, 10) || undefined : undefined,
 		autoCommit: opts.commit !== false,
 		browserEnabled: opts.browser === true ? "true" : opts.browser === false ? "false" : "auto",
 		modelOverride,

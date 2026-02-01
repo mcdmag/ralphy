@@ -1,5 +1,12 @@
-import { BaseAIEngine, checkForErrors, execCommand, formatCommandError } from "./base.ts";
-import type { AIResult, EngineOptions } from "./types.ts";
+import {
+	BaseAIEngine,
+	checkForErrors,
+	detectStepFromOutput,
+	execCommand,
+	execCommandStreaming,
+	formatCommandError,
+} from "./base.ts";
+import type { AIResult, EngineOptions, ProgressCallback } from "./types.ts";
 
 const isWindows = process.platform === "win32";
 
@@ -9,6 +16,7 @@ const isWindows = process.platform === "win32";
 export class OpenCodeEngine extends BaseAIEngine {
 	name = "OpenCode";
 	cliCommand = "opencode";
+	defaultModel = "anthropic/claude-opus-4-20250514";
 
 	async execute(prompt: string, workDir: string, options?: EngineOptions): Promise<AIResult> {
 		const args = ["run", "--format", "json"];
@@ -117,5 +125,87 @@ export class OpenCodeEngine extends BaseAIEngine {
 		response = textParts.join("") || "Task completed";
 
 		return { response, inputTokens, outputTokens, cost };
+	}
+
+	async executeStreaming(
+		prompt: string,
+		workDir: string,
+		onProgress: ProgressCallback,
+		options?: EngineOptions,
+	): Promise<AIResult> {
+		const args = ["run", "--format", "json"];
+		if (options?.modelOverride) {
+			args.push("--model", options.modelOverride);
+		}
+		// Add any additional engine-specific arguments
+		if (options?.engineArgs && options.engineArgs.length > 0) {
+			args.push(...options.engineArgs);
+		}
+
+		// On Windows, pass prompt via stdin to avoid cmd.exe argument parsing issues with multi-line content
+		let stdinContent: string | undefined;
+		if (isWindows) {
+			stdinContent = prompt;
+		} else {
+			args.push(prompt);
+		}
+
+		const outputLines: string[] = [];
+
+		const { exitCode } = await execCommandStreaming(
+			this.cliCommand,
+			args,
+			workDir,
+			(line) => {
+				outputLines.push(line);
+
+				// Detect and report step changes
+				const step = detectStepFromOutput(line);
+				if (step) {
+					onProgress(step, line);
+				} else {
+					// Still pass the line for verbose output even if no step detected
+					onProgress("Working", line);
+				}
+			},
+			{ OPENCODE_PERMISSION: '{"*":"allow"}' },
+			stdinContent,
+		);
+
+		const output = outputLines.join("\n");
+
+		// Check for errors
+		const error = checkForErrors(output);
+		if (error) {
+			return {
+				success: false,
+				response: "",
+				inputTokens: 0,
+				outputTokens: 0,
+				error,
+			};
+		}
+
+		// Parse OpenCode JSON format
+		const { response, inputTokens, outputTokens, cost } = this.parseOutput(output);
+
+		// If command failed with non-zero exit code, provide a meaningful error
+		if (exitCode !== 0) {
+			return {
+				success: false,
+				response,
+				inputTokens,
+				outputTokens,
+				error: formatCommandError(exitCode, output),
+			};
+		}
+
+		return {
+			success: true,
+			response,
+			inputTokens,
+			outputTokens,
+			cost,
+		};
 	}
 }
