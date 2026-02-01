@@ -31,3 +31,6 @@ Thumbs.db
 # Logs
 *.log
 cli/package-lock.json
+
+#build files
+cli/*.bun-build

@@ -244,6 +244,30 @@ Ralphy isn't just a runner; it's a collaborator. You can chat with Ralphy **whil
     - *"Skip the unit tests for this one"*
     - Ralphy captures this as **Feedback** and automatically applies it as the prompt for the next step.
 
+## Development Setup
+
+To run Ralphy from source (for contributors or local development):
+
+```bash
+# Clone the repository
+git clone https://github.com/michaelshimeles/ralphy.git
+cd ralphy/cli
+
+# Install dependencies
+bun install
+
+# Link globally so 'ralphy' command works
+npm link
+
+# Run Ralphy
+ralphy --verbose "your task here"
+```
+
+**Session Logs**: Debug logs are stored in `.ralphy/logs/` (auto-cleaned to max 100 files, 7 days). Session files include task slugs for easy identification:
+```
+.ralphy/logs/sessions/2026-02-02_10-47-04_add-login-button_xyz1.log
+```
+
 ## Requirements
 
 - Node.js 18+ or Bun

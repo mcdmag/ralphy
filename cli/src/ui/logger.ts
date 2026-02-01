@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import pc from "picocolors";
 import { isInputActive, refreshInputPrompt } from "./input.ts";
@@ -76,6 +76,68 @@ export function initFileLogging(workDir: string): void {
 	if (!existsSync(sessionsDir)) {
 		mkdirSync(sessionsDir, { recursive: true });
 	}
+
+	// Clean up old sessions to prevent filesystem bloat
+	cleanupOldSessions(sessionsDir);
+}
+
+/**
+ * Clean up old session files to prevent filesystem bloat
+ * - Deletes sessions older than 7 days
+ * - Keeps only the 100 most recent session files
+ */
+function cleanupOldSessions(sessionsDir: string): void {
+	try {
+		const files = readdirSync(sessionsDir);
+		if (files.length === 0) return;
+
+		const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days in ms
+		const maxFiles = 100;
+		const now = Date.now();
+
+		// Get file stats
+		const fileStats = files
+			.filter((f) => f.endsWith(".log"))
+			.map((f) => {
+				const fullPath = join(sessionsDir, f);
+				try {
+					const stat = statSync(fullPath);
+					return { name: f, path: fullPath, mtime: stat.mtime.getTime() };
+				} catch {
+					return null;
+				}
+			})
+			.filter((f): f is NonNullable<typeof f> => f !== null);
+
+		// Delete files older than maxAge
+		for (const file of fileStats) {
+			if (now - file.mtime > maxAge) {
+				try {
+					unlinkSync(file.path);
+				} catch {
+					// Silently fail
+				}
+			}
+		}
+
+		// If still too many files, keep only the most recent maxFiles
+		const remainingFiles = fileStats
+			.filter((f) => now - f.mtime <= maxAge)
+			.sort((a, b) => b.mtime - a.mtime);
+
+		if (remainingFiles.length > maxFiles) {
+			const filesToDelete = remainingFiles.slice(maxFiles);
+			for (const file of filesToDelete) {
+				try {
+					unlinkSync(file.path);
+				} catch {
+					// Silently fail
+				}
+			}
+		}
+	} catch {
+		// Silently fail if cleanup fails - don't break logging
+	}
 }
 
 /**
@@ -93,13 +155,19 @@ function getTimestamp(): string {
 }
 
 /**
- * Generate a unique session ID
+ * Generate a unique session ID with task slug for easy identification
  */
-function generateSessionId(): string {
+function generateSessionId(taskTitle: string): string {
 	const date = getDateString();
 	const time = new Date().toISOString().split("T")[1].replace(/[:.]/g, "-").slice(0, 8);
 	const rand = Math.random().toString(36).substring(2, 6);
-	return `${date}_${time}_${rand}`;
+	// Create a slug from task title (lowercase, replace spaces/special chars with hyphens, max 30 chars)
+	const slug = taskTitle
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-|-$/g, "")
+		.slice(0, 30);
+	return `${date}_${time}_${slug}_${rand}`;
 }
 
 /**
@@ -124,7 +192,7 @@ function writeToLogFile(level: string, message: string): void {
  * @returns Session ID for this interaction
  */
 export function startAgentSession(taskTitle: string): string {
-	currentSessionId = generateSessionId();
+	currentSessionId = generateSessionId(taskTitle);
 
 	if (logsDir) {
 		const sessionFile = join(logsDir, "sessions", `${currentSessionId}.log`);

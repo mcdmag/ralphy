@@ -57,6 +57,7 @@ Phase 1
 
 ### Phase 5: Delivery
 - [ ] Review all output files
+- [ ] Stage and commit changes
 - [ ] Deliver to user
 - **Status:** pending
 

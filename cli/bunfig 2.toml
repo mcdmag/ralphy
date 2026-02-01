@@ -1,4 +1,0 @@
-# Bun configuration for Ralphy CLI
-# Uses @opentui/solid preload for JSX transformation
-
-preload = ["@opentui/solid/preload"]

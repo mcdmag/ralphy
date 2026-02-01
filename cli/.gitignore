@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Lock files (regenerated on install)
+bun.lockb
+
+# Runtime logs and state
+.ralphy/
+
+# OS files
+.DS_Store
